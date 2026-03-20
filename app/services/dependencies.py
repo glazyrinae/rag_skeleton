@@ -1,8 +1,8 @@
 import os
 from functools import lru_cache
 from core.db import VectorDB
-
 from core.llm import Llm
+from core.rag import RAG
 
 
 @lru_cache()
@@ -19,3 +19,8 @@ def get_db() -> VectorDB:
     db = VectorDB()
 
     return db
+
+
+@lru_cache()
+def get_rag() -> RAG:
+    return RAG(db=get_db(), llm=get_llm())

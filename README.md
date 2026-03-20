@@ -1,225 +1,252 @@
-# SSPHERA RAG
+# RAG Skeleton
 
-Локальная система Retrieval-Augmented Generation, которая индексирует исходный код и документацию, складывает эмбеддинги в Qdrant и позволяет задавать вопросы через API, совместимое с OpenAI. Проект рассчитан на офлайн‑исполнение (всё хранится в ваших каталогах) и может переключаться между локальными LLM (Ollama) и облачными моделями через OpenRouter.
+Небольшой локальный RAG-сервис на FastAPI для индексации файлов проекта и поиска по ним через эмбеддинги. Репозиторий в текущем состоянии использует:
 
----
+- `FastAPI` для HTTP API
+- `Deep Lake` как векторное хранилище
+- `FastEmbed` для генерации эмбеддингов
+- `Ollama` как LLM backend
+- `Docker Compose` для локального запуска
 
-## Содержание
+README ниже описывает именно текущее состояние репозитория, без устаревших модулей и интеграций.
 
-1. [Обзор и сценарии применения](#обзор-и-сценарии-применения)
-2. [Архитектура и основные компоненты](#архитектура-и-основные-компоненты)
-3. [Структура репозитория](#структура-репозитория)
-4. [Технологический стек](#технологический-стек)
-5. [Подготовка окружения](#подготовка-окружения)
-6. [Запуск через Docker Compose](#запуск-через-docker-compose)
-7. [Локальный запуск без Docker](#локальный-запуск-без-docker)
-8. [Работа с данными и индексацией](#работа-с-данными-и-индексацией)
-9. [API](#api)
-10. [Настройка эмбеддингов и чанкинга](#настройка-эмбеддингов-и-чанкинга)
-11. [Устранение неполадок](#устранение-неполадок)
-12. [Дорожная карта и дополнительные модули](#дорожная-карта-и-дополнительные-модули)
+## Что умеет сервис
 
----
+- индексирует каталоги с файлами `.py`, `.md`, `.txt`, `.pdf`, `.html`
+- режет документы на чанки через `SentenceSplitter`
+- сохраняет тексты, метаданные и эмбеддинги в отдельные датасеты Deep Lake
+- ищет релевантные фрагменты по запросу
+- отправляет произвольный prompt в Ollama через API `/ask`
+- выполняет простой RAG через API `/rag`
 
-## Обзор и сценарии применения
+Важно: `/ask` по-прежнему не использует найденный контекст из векторной базы автоматически. Для этого теперь есть отдельный endpoint `/rag`.
 
-- 🔍 **Семантический поиск по коду** — быстрые ответы на вопросы о функциях, моделях данных и шаблонах в репозитории.
-- 📚 **Навигация по документации** — индексируются Markdown, PDF и HTML, поэтому можно задавать вопросы к техническим регламентам.
-- 🧩 **Смешанные проекты** — поддержка нескольких «схем» (коллекций Qdrant), что позволяет хранить разные проекты в отдельных индексах и выбирать контекст хэштегами (`#core`, `#sber` и т.д.).
-- 🤖 **ChatGPT‑совместимый API** — эндпоинт `/v1/chat/completions` понимает формат OpenAI и умеет работать в стриминговом режиме.
-- 🛡️ **Полностью локально** — документы и индексы лежат в ваших volume‑каталогах, LLM можно запустить через Ollama.
+## Структура проекта
 
----
-
-## Архитектура и основные компоненты
-
-```
-┌────────────────────┐      ┌────────────────────┐      ┌──────────────────────┐
-│ FastAPI (app/api)  │──LLM→│ core.llm.Llm        │──◄──▶ внешняя LLM (Ollama, │
-│ /add /search /ask  │      │ - prompt-пайплайн   │      │  OpenRouter)         │
-│ /v1/chat/completions│     │ - выбор схемы       │      └──────────────────────┘
-│                    │      │ - обращение к VectorDB                            │
-└─────────┬──────────┘      └─────────┬──────────┘
-          │                           │
-          │ индексирует/ищет          │ similarity search
-          ▼                           ▼
-┌────────────────────┐      ┌──────────────────────────────────────────┐
-│ core.db.VectorDB   │──►──▶ Qdrant (docker service `qdrant`)          │
-│ - FileProcessor    │      │ коллекции core, sber, test…              │
-│ - Recursive splitter│     └──────────────────────────────────────────┘
-└────────────────────┘
-```
-
-### FastAPI (`app/api/endpoints.py`)
-- `/add` — запускает индексацию каталога и складывает документы в выбранную схему.
-- `/search` — отдаёт сырые тексты найденных чанков.
-- `/ask` и `/v1/chat/completions` — вызывают LLM поверх найденного контекста.
-
-### LLM (`app/core/llm.py`)
-- Работает либо с Ollama (`TYPE_MODEL=local`), либо с OpenRouter (`TYPE_MODEL=cloud`).
-- Понимает хэштеги в истории чата: `#core`, `#sber`, `#reset`.
-- Автоматически строит промпт (правила тональности, ограничение на цитирование).
-
-### VectorDB (`app/core/db.py`)
-- Инициализирует коллекции Qdrant на лету, следит за размерностью векторов.
-- Поддерживает две стратегии чанкинга: семантическую через Tree‑sitter (класс `PythonTreeSitterSplitter`) и классическую `RecursiveCharacterTextSplitter`. По умолчанию включён второй вариант (чанки ≈1000 символов).
-- Использует `HuggingFaceEmbeddings` (`BAAI/bge-m3`, 1024 измерения). Для перехода на GGUF достаточно раскомментировать класс `GGUFEmbeddings`.
-
-### Парсеры файлов (`app/lib/file_processor.py`)
-- **Python** — чтение файла целиком + метаданные (путь, тип документа, язык).
-- **Markdown** — выделение полного текста, секций, блоков кода.
-- **PDF** — извлечение помимо полного текста также страниц.
-- **HTML** — очистка тегов и создание документов по блокам.
-- Можно легко расширять через `FileProcessorFacade.PARSERS`.
-
----
-
-## Структура репозитория
-
-```
-ssphera_rag/
+```text
+.
 ├── app/
-│   ├── api/                # FastAPI роуты и (в будущем) очередь
-│   ├── core/               # LLM + VectorDB
-│   ├── lib/                # Парсеры и вспомогательные классы
-│   ├── services/           # DI (dependencies), адаптеры
-│   ├── data/               # Каталог, проброшенный в контейнер как /app/data
-│   ├── embedding_models/   # Локальный кэш эмбеддингов
-│   ├── main.py             # Инициализация FastAPI
-│   └── manage.py           # Хук для очереди (оставлен для обратной совместимости)
+│   ├── api/endpoints.py        # HTTP endpoints
+│   ├── core/db.py              # индексация, чанкинг, эмбеддинги, поиск
+│   ├── core/llm.py             # клиент Ollama
+│   ├── services/dependencies.py
+│   └── main.py                 # точка входа FastAPI
 ├── deploy/
-│   ├── Dockerfile, requirements.txt
-│   ├── data/               # Примеры проектов (mount → /app/data)
-│   ├── embedding_models/   # Область кэша, шарится с контейнером
-│   └── qdrant_data/        # Персистентное хранилище Qdrant
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── data/                   # данные для индексации
+│   ├── deeplake_data/          # датасеты Deep Lake
+│   ├── embedding_models/       # кэш embedding-моделей
+│   └── ollama_models/          # модели Ollama
+├── .env.example
 ├── docker-compose.yml
 └── README.md
 ```
 
----
+## API
 
-## Технологический стек
+### `POST /add`
 
-- **Язык / фреймворки**: Python 3.10, FastAPI, LangChain.
-- **LLM-провайдеры**: Ollama (локально) или OpenRouter (cloud, через ChatOpenAI API).
-- **Векторная БД**: Qdrant (`qdrant/qdrant:latest`), cosine distance.
-- **Эмбеддинги**: `sentence-transformers/BAAI/bge-m3` (по умолчанию), совместимо с GGUF‑моделью `jina-embeddings-v4-text-code`.
-- **Парсеры**: Tree‑sitter (Python), Markdown, BeautifulSoup, PyPDF2.
-- **Контейнеризация**: Docker Compose, внешний network `shared_network`.
+Индексирует локальный каталог в указанный датасет.
 
----
+Пример:
 
-## Подготовка окружения
+```bash
+curl -X POST "http://localhost:5005/add?schema=core&project_path=/app/data/core"
+```
 
-1. **Требования**:
-   - Docker + Docker Compose v2.
-   - Доступ к внешней сети (для скачивания моделей/зависимостей).
-   - 8 ГБ RAM на контейнер API + Qdrant (рекомендация).
-2. **Каталоги, которые должны существовать до старта**:
-   - `deploy/data` — сюда кладём проекты для индексации (смонтируется в `/app/data`).
-   - `deploy/embedding_models` — кэш HuggingFace / GGUF, должен быть доступен на запись.
-   - `deploy/qdrant_data` — персистентное хранилище Qdrant.
-3. **Переменные окружения** (`.env`):
+Параметры:
 
-| Переменная | Назначение |
-|-----------|------------|
-| `OPENROUTER_API_KEY` | ключ для OpenRouter (используется, если `TYPE_MODEL=cloud`). |
-| `TYPE_MODEL` | `cloud` или `local`. В локальном режиме требуется запущенный Ollama и загруженная модель. |
-| `QDRANT_HOST` / `QDRANT_PORT` | координаты Qdrant, внутри docker-compose автозамена на `qdrant:6333`. |
-| `QDRANT__SERVICE__HTTP_PORT` | публичный порт для доступа к Qdrant UI. |
-| `UID` / `GID` | пользователь/группа, от имени которых работают контейнеры (нужно, чтобы иметь права на тома). |
+- `schema` - имя датасета Deep Lake
+- `project_path` - путь внутри контейнера до каталога с документами
 
----
+### `POST /search`
 
-## Запуск через Docker Compose
+Ищет похожие чанки и возвращает их как plain text.
 
-1. Заполните `.env` (см. предыдущий раздел).
-2. По желанию раскомментируйте блоки `ollama` и `open-webui` в `docker-compose.yml`.
-3. Поднимите сервисы:
+Пример:
+
+```bash
+curl -X POST "http://localhost:5005/search?schema=core&query=как работает индексация"
+```
+
+### `POST /ask`
+
+Отправляет вопрос напрямую в Ollama и возвращает текст ответа.
+
+Примеры:
+
+```bash
+curl -X POST "http://localhost:5005/ask?question=Объясни назначение этого сервиса"
+```
+
+```bash
+curl -X POST "http://localhost:5005/ask" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Сформулируй краткое описание проекта"}'
+```
+
+### `POST /rag`
+
+Ванильный RAG: ищет релевантные чанки в Deep Lake, собирает prompt с контекстом и отправляет его в Ollama.
+
+Примеры:
+
+```bash
+curl -X POST "http://localhost:5005/rag?schema=core&question=Как работает индексация"
+```
+
+```bash
+curl -X POST "http://localhost:5005/rag" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schema": "core",
+    "question": "Как сервис режет документы на чанки?",
+    "top_k": 5,
+    "include_sources": true
+  }'
+```
+
+Ответ возвращается в JSON и содержит:
+
+- `answer` - ответ модели
+- `schema` - датасет, в котором выполнялся поиск
+- `question` - исходный вопрос
+- `used_chunks` - сколько чанков попало в контекст
+- `sources` - найденные фрагменты и их метаданные
+
+## Как работает индексация
+
+1. `SimpleDirectoryReader` обходит каталог рекурсивно.
+2. Загружаются только файлы с поддерживаемыми расширениями.
+3. Документы режутся на чанки через `SentenceSplitter`.
+4. Для чанков строятся эмбеддинги моделью `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`.
+5. Чанки записываются в Deep Lake датасет вида `/app/deeplake_data/<schema>`.
+
+Параметры по умолчанию находятся в [app/core/db.py](/home/andrey/projects/pets/rag_skeleton/app/core/db.py):
+
+- размер чанка: `1000`
+- overlap: `150`
+- размер батча эмбеддингов: `64`
+
+## Быстрый старт через Docker Compose
+
+### 1. Подготовьте внешнюю docker-сеть
+
+`docker-compose.yml` ожидает внешнюю сеть `shared_network`.
+
+```bash
+docker network create shared_network
+```
+
+### 2. Создайте `.env`
+
+Проще всего взять шаблон:
+
+```bash
+cp .env.example .env
+```
+
+Минимальный пример:
+
+```env
+UID=1000
+GID=1000
+LOG_LEVEL=INFO
+OLLAMA_BASE_URL=http://ollama:11438
+OLLAMA_MODEL=hodza/cotype-nano-1.5-unofficial:latest
+```
+
+Если сервис `ollama` публикуется на другом порту, укажите также:
+
+```env
+OLLAMA_PUBLISHED_PORT=11438
+```
+
+### 3. Поднимите сервисы
 
 ```bash
 docker compose up -d --build
 ```
 
-4. Проверьте, что API доступно: `http://localhost:5005/docs`.
-5. Убедитесь, что в Qdrant появилась коллекция после первой индексации: `http://localhost:6333/dashboard`.
-6. Для просмотра dataset через официальный Activeloop Visualizer поднимите `deeplake-ui` и откройте `http://localhost:8091`.
+После старта будут доступны:
 
-**Volumes в docker-compose:**
-- `./deploy/data:/app/data` — источник документов.
-- `./app:/app` — монтируем код для hot-reload (`uvicorn --reload`).
-- `./deploy/embedding_models:/app/embedding_models` — общий кэш эмбеддингов.
-- `./deploy/qdrant_data:/qdrant/storage` — данные Qdrant.
+- API: `http://localhost:5005`
+- Swagger UI: `http://localhost:5005/docs`
+- Ollama: `http://localhost:11438`
 
-### Deep Lake Visualizer
+### 4. Скачайте модель в сервис `ollama`
 
-В `docker-compose.yml` добавлен сервис `deeplake-ui`, который поднимает локальную страницу-обёртку и встраивает официальный Activeloop Visualizer через `iframe`.
-
-Запуск:
+Сначала убедитесь, что контейнер `ollama` запущен:
 
 ```bash
-docker compose up -d deeplake-ui
+docker compose up -d ollama
 ```
 
-По умолчанию UI доступен на `http://localhost:8091`.
-
-Дополнительные переменные:
-
-| Переменная | Назначение |
-|-----------|------------|
-| `DEEPLAKE_VISUALIZER_PORT` | Порт локального UI, по умолчанию `8091`. |
-| `DEEPLAKE_VISUALIZER_TITLE` | Заголовок страницы, по умолчанию `Deep Lake Viewer`. |
-| `DEEPLAKE_VISUALIZER_BASE_URL` | Базовый URL official visualizer, по умолчанию `https://app.activeloop.ai/visualizer`. |
-| `DEEPLAKE_VISUALIZER_DATASET_URL` | Dataset URL, который будет открыт сразу после загрузки страницы. |
-
-Ограничение:
-- Локальный `deeplake://localhost:6543/...` не открывается в official Activeloop UI напрямую.
-- Для просмотра через `deeplake-ui` нужен dataset URL, доступный через Activeloop Visualizer.
-
----
-
-## SSPHERA MCP (поиск в Qdrant через BAAI/bge-m3) для IDE
-
-Если хочется MCP‑тулзы поверх уже проиндексированных коллекций SSPHERA и HuggingFace‑эмбеддингов `BAAI/bge-m3` из `/app/embedding_models`, поднимите `ssphera_mcp_http`.
-`ssphera_mcp_http` реализован на Python и проксирует вызовы в SSPHERA API.
-
-На сервере:
+После этого скачайте нужную модель прямо через сервис:
 
 ```bash
-docker compose --profile mcp up -d --build api qdrant ssphera_mcp_http
+docker compose exec ollama ollama pull hodza/cotype-nano-1.5-unofficial:latest
 ```
 
-В Zed (локально):
-
-```json
-{
-  "context_servers": {
-    "ssphera": {
-      "url": "http://REMOTE_HOST:8090/mcp",
-      "headers": { "X-API-Key": "YOUR_MCP_PROXY_API_KEY" }
-    }
-  }
-}
-```
-
-Если IDE не коннектится по `.../mcp`, проверьте вариант `.../sse` (в `mcp-proxy` включены оба транспорта).
-
-### Пример «тулзы» в API: `/tools/review`
-
-Упрощённый code-review эндпоинт (без MCP), который делает RAG‑поиск в Qdrant и просит LLM отревьюить файл/дифф:
+Пример для другой модели:
 
 ```bash
-curl -X POST http://localhost:5005/tools/review \
-  -H "Content-Type: application/json" \
-  -d '{"schema":"core","file_path":"core/llm.py","instructions":"Найди баги и риски"}'
+docker compose exec ollama ollama pull qwen2.5:3b
 ```
 
----
+Проверьте, что модель появилась:
+
+```bash
+docker compose exec ollama ollama list
+```
+
+Важно:
+
+- имя в `OLLAMA_MODEL` в `.env` должно совпадать с реально скачанной моделью
+- модели сохраняются в `deploy/ollama_models`
+
+### 5. Положите данные для индексации
+
+Скопируйте файлы в каталог:
+
+```text
+deploy/data/<schema_name>
+```
+
+Например:
+
+```text
+deploy/data/core
+```
+
+В контейнере этот путь будет доступен как:
+
+```text
+/app/data/core
+```
+
+### 6. Запустите индексацию
+
+```bash
+curl -X POST "http://localhost:5005/add?schema=core&project_path=/app/data/core"
+```
+
+### 7. Выполните поиск
+
+```bash
+curl -X POST "http://localhost:5005/search?schema=core&query=FastAPI endpoint"
+```
+
+### 8. Выполните RAG-запрос
+
+```bash
+curl -X POST "http://localhost:5005/rag?schema=core&question=Как работает индексация"
+```
 
 ## Локальный запуск без Docker
 
-1. Установите системные зависимости (Tree‑sitter, gcc/g++).
-2. Создайте virtualenv и установите Python-зависимости:
+Требуется Python `3.10`.
 
 ```bash
 python3.10 -m venv .venv
@@ -227,121 +254,91 @@ source .venv/bin/activate
 pip install -r deploy/requirements.txt
 ```
 
-3. Запустите Qdrant отдельно (например, `docker run -p 6333:6333 qdrant/qdrant`).
-4. Экспортируйте переменные окружения (`export QDRANT_HOST=localhost`, `TYPE_MODEL=local` и т.д.).
-5. Запустите API:
+Запуск API:
 
 ```bash
-uvicorn app.main:app --reload --port 8000
+cd app
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-6. Для локальной LLM поднимите Ollama и скачайте модель:
+При локальном запуске нужно отдельно обеспечить:
+
+- доступный Ollama
+- директории для `embedding_models` и `deeplake_data`
+- корректный `OLLAMA_BASE_URL`
+
+## Переменные окружения
+
+Основные переменные:
+
+- `OLLAMA_BASE_URL` - адрес Ollama API, по умолчанию `http://ollama:11438`
+- `OLLAMA_MODEL` - модель Ollama для `/ask` и `/rag`
+- `OLLAMA_PUBLISHED_PORT` - порт, который пробрасывается наружу для сервиса `ollama`
+- `LOG_LEVEL` - уровень логирования
+- `UID` и `GID` - пользователь контейнера в Docker Compose
+- `DEEPLAKE_*` - необязательные переменные для локальной настройки Deep Lake
+
+## Хранилища и volume'ы
+
+Используются следующие монтирования:
+
+- `./deploy/data:/app/data`
+- `./app:/app`
+- `./deploy/embedding_models:/app/embedding_models`
+- `./deploy/deeplake_data:/app/deeplake_data`
+- `./deploy/ollama_models:/data/models`
+
+Это значит:
+
+- исходные документы живут в `deploy/data`
+- индекс Deep Lake сохраняется в `deploy/deeplake_data`
+- скачанные embedding-модели кэшируются в `deploy/embedding_models`
+- скачанные Ollama-модели сохраняются в `deploy/ollama_models`
+
+## Ограничения текущей версии
+
+- нет OpenAI-совместимого chat endpoint
+- нет Qdrant в текущей реализации
+- README старых версий проекта больше не соответствует коду
+- для первой загрузки embedding-модели и Ollama-модели нужен доступ в сеть
+
+## Частые проблемы
+
+### Нет прав на запись в `deploy/embedding_models` или `deploy/deeplake_data`
+
+Проверьте владельца каталогов и значения `UID`/`GID` в `.env`.
+
+### Ollama недоступен
+
+Проверьте переменную `OLLAMA_BASE_URL` и убедитесь, что контейнер `ollama` поднят:
 
 ```bash
-ollama pull qwen2.5:0.5b
+docker compose ps
 ```
 
----
-
-## Работа с данными и индексацией
-
-1. Скопируйте репозиторий/документы в папку `deploy/data/<schema_name>` на хосте.
-2. В контейнере это окажется в `/app/data/<schema_name>`.
-3. Вызовите `/add`:
+Если контейнер поднят, но модель не найдена, проверьте список моделей:
 
 ```bash
-curl -X POST "http://localhost:5005/add?schema=test&project_path=/app/data/test"
+docker compose exec ollama ollama list
 ```
 
-Параметры отправляются как query-string (FastAPI не читает JSON-тело для этих аргументов).
-
-### Как происходит индексация
-
-1. `VectorDB.scan_dataset` обходит каталог, игнорируя `__pycache__`, `.git`, `node_modules`, `venv`.
-2. `FileProcessorFacade.parse_file` выбирает подходящий парсер по расширению и создаёт `langchain.schema.Document` с богатыми метаданными (путь, тип элемента, язык, страницы и т.д.).
-3. Документы нарезаются `RecursiveCharacterTextSplitter` (длина 1000, overlap 150) и пачками отправляются в Qdrant (`batch_size=100`).
-4. Для Python можно переключиться на `PythonTreeSitterSplitter` — он отдаёт чанки «функция / класс целиком» (см. раздел [Настройка эмбеддингов и чанкинга](#настройка-эмбеддингов-и-чанкинга)).
-
----
-
-## API
-
-| Метод | Описание | Пример |
-|-------|----------|--------|
-| `POST /add` | Индексация каталога. | `curl -X POST "http://localhost:5005/add?schema=core&project_path=/app/data/core"` |
-| `POST /search` | Возвращает `k` самых похожих чанков (по умолчанию `k=5`). Выход — plain text с разделителем. | `curl -X POST "http://localhost:5005/search?schema=core&query=Запрашиваемый%20набор"` |
-| `POST /ask` | Упрощённый вызов `Llm.ask`; принимает параметр `user_query` и возвращает ответ LLM. | `curl -X POST "http://localhost:5005/ask" -d "user_query=Что делает отчет #core"` |
-| `POST /v1/chat/completions` | OpenAI-совместимый эндпоинт. Поддерживает поле `stream`. | См. ниже |
-
-### Пример вызова `/v1/chat/completions`
+Если нужной модели нет, скачайте её:
 
 ```bash
-curl -X POST http://localhost:5005/v1/chat/completions \
-     -H "Content-Type: application/json" \
-     -d '{
-           "model": "qwen-local",
-           "stream": false,
-           "messages": [
-             {"role": "user", "content": "Расскажи про структуру проекта #core"}
-           ]
-         }'
+docker compose exec ollama ollama pull <model_name>
 ```
 
-Ответ идентичен OpenAI (id, created, choices, usage). В стриминговом режиме сервер отправляет Server-Sent Events (`data: {...}`), что позволяет подключать существующие клиенты ChatGPT.
+### Индексация ничего не находит
 
----
+Проверьте:
 
-## Настройка эмбеддингов и чанкинга
+- что `project_path` существует внутри контейнера
+- что в каталоге есть файлы поддерживаемых типов
+- что поиск выполняется по тому же `schema`, куда делалась индексация
 
-1. **Выбор модели эмбеддингов** (`app/core/db.py`):
-   - HuggingFace (`BAAI/bge-m3`): быстрее стартует, требует интернет/кэш.
-   - GGUF (`jina-embeddings-v4-text-code`): полностью офлайн, но нужен `llama-cpp-python` и вес модели в `deploy/embedding_models`.
-   - Переключение осуществляется заменой `_init_embeddings` (раскомментируйте блок с `GGUFEmbeddings` и укажите путь к GGUF в `EMBEDDING_MODEL`).
+## Что имеет смысл сделать дальше
 
-2. **Размер чанков**:
-   - Параметры `DEFAULT_CHUNK_SIZE` и `DEFAULT_CHUNK_OVERLAP` управляют `RecursiveCharacterTextSplitter`.
-   - Для более точных совпадений по коротким запросам уменьшайте `DEFAULT_CHUNK_SIZE` (например, 600). Не забывайте про overhead на количество чанков и память.
-
-3. **Tree‑sitter сплиттер**:
-   - Экземпляр `self.tree_sitter_splitter` уже создаётся, но по умолчанию не используется.
-   - Чтобы комбинировать семантическую и фиксированную нарезку, можно заменить
-     ```python
-     chunks = self.simple_splitter.split_documents(documents)
-     ```
-     на двухшаговый процесс (Tree‑sitter → рекурсивный splitter для слишком длинных узлов). Такой подход сохраняет метаданные классов/функций и помогает ловить короткие запросы.
-
-4. **Количество результатов в поиске**:
-   - Метод `VectorDB.search` принимает параметр `k` (по умолчанию 5). Передайте нужное значение из эндпоинта `/search`, добавив аргумент `k` в обработчик.
-   - Если Qdrant отдаёт меньше документов, чем ожидается, проверьте score threshold и наличие данных в коллекции.
-
----
-
-## Устранение неполадок
-
-| Симптом | Причина | Решение |
-|--------|---------|---------|
-| `PermissionError: [Errno 13] Permission denied: '/app/embedding_models/...'` | Контейнер API запущен от пользователя `UID:GID`, который не имеет прав записи к примонтированному каталогу. | Выдайте права на `deploy/embedding_models` (`chown -R $USER:$USER deploy/embedding_models`). |
-| `/search` всегда возвращает один и тот же нерелевантный чанк | Запрос ищет в другой схеме или коллекция содержит мало документов. | Убедитесь, что параметр `schema` передаётся в URL (`/search?schema=test...`). Перепроверьте, что индексация прошла успешно и коллекция содержит документы. |
-| Нужный текст есть в Qdrant, но запрос возвращает другой фрагмент | Чанк содержит много лишнего кода, поэтому короткий текст «теряется» в эмбеддинге. | Уменьшите размер чанка или включите Tree‑sitter. Также можно временно увеличить `k` и фильтровать результаты на клиенте. |
-| FastAPI падает при импорте `services.handle_request` | В текущей версии файл отсутствует, но импорт остался (исторический артефакт). | Удалите импорт или создайте заглушку, если нужна совместимость со старыми клиентами. |
-| Ничего не индексируется | Проверьте `SUPPORTED_EXTENSIONS` в `app/core/db.py` и убедитесь, что файлы имеют поддерживаемые расширения (`.py`, `.md`, `.txt`, `.pdf`, `.html`). |
-
----
-
-## Дорожная карта и дополнительные модули
-
-- **Очереди и воркеры**: в `app/manage.py` и `services/rag_adapter.py` оставлены заготовки для фонового воркера, который ранее обрабатывал задачи из Redis (`rag_questions`). Сейчас эти файлы не задействованы; при необходимости можно вернуть очередь, подключив Redis и реализовав функции в `rag_adapter.py`.
-- **Telegram-бот**: в README ранних версий упоминался бот (`bot/`), но каталог отсутствует. Если нужен интерфейс мессенджера, придётся реализовать его заново.
-- **Open WebUI / Ollama**: блоки уже прописаны в docker-compose и готовы к включению. Нужно лишь раскомментировать службы и убедиться, что внешняя сеть `shared_network` существует.
-- **Дополнительные схемы**: расширьте `ALLOWED_SCHEMAS` в `app/core/llm.py`, добавьте соответствующие каталоги в `deploy/data` и вновь проиндексируйте.
-
----
-
-## Полезные подсказки
-
-- Перед первой индексацией удалите `deploy/qdrant_data`, чтобы избежать конфликтов размерностей при смене модели эмбеддингов.
-- В логах FastAPI видно прогресс индексации: найдено документов → создано чанков → батчи.
-- В `deploy/data` уже лежит пример проекта `core/sphere_sqla` — удобно для smoke‑тестов.
-- Для быстрой отладки используйте Uvicorn вне Docker: `uvicorn app.main:app --reload --port 5005`.
-
----
+- связать `/search` и `/ask` в единый RAG endpoint
+- вернуть structured JSON-ответ для поиска вместо plain text
+- добавить управление `k` и другими параметрами поиска через API
+- покрыть сервис smoke-тестами
