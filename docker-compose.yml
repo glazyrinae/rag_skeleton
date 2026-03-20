@@ -1,0 +1,68 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    user: "${UID}:${GID}"
+    ports:
+      - "${OLLAMA_PUBLISHED_PORT:-11438}:11438"
+    volumes:
+      - ./deploy/ollama_models:/data/models
+      # - ./src/integrations/ollama_server:/workspace/ollama_server
+      - ./deploy/gguf_adapters:/workspace/deploy/gguf_adapters
+      - ./deploy/modelfiles:/workspace/deploy/modelfiles
+    environment:
+      HOME: /tmp/ollama
+      OLLAMA_HOST: 0.0.0.0:11438
+      OLLAMA_MODELS: /data/models
+    env_file:
+      - ./.env
+    networks:
+      - shared_net
+    command: serve
+    healthcheck:
+      test: ["CMD-SHELL", "OLLAMA_HOST=127.0.0.1:11438 ollama list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  api:
+    build:
+      context: ./deploy
+    user: "${UID}:${GID}"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      NLTK_DATA: /tmp/nltk_data
+      HF_HUB_DISABLE_XET: "1"
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11438}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-hodza/cotype-nano-1.5-unofficial:latest}
+    command: >
+      sh -c "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./deploy/data:/app/data
+      - ./app:/app
+      - ./deploy/embedding_models:/app/embedding_models
+      - ./deploy/deeplake_data:/app/deeplake_data
+    env_file:
+      - ./.env
+    ports:
+      - 5005:8000
+    networks:
+      - shared_net
+
+  # deeplake-ui:
+  #   image: nginx:1.27-alpine
+  #   environment:
+  #     DEEPLAKE_VISUALIZER_TITLE: ${DEEPLAKE_VISUALIZER_TITLE:-Deep Lake Viewer}
+  #     DEEPLAKE_VISUALIZER_BASE_URL: ${DEEPLAKE_VISUALIZER_BASE_URL:-https://app.activeloop.ai/visualizer}
+  #     DEEPLAKE_VISUALIZER_DATASET_URL: ${DEEPLAKE_VISUALIZER_DATASET_URL:-}
+  #   volumes:
+  #     - ./deploy/deeplake_ui/index.html.template:/etc/nginx/templates/index.html.template:ro
+  #   ports:
+  #     - "${DEEPLAKE_VISUALIZER_PORT:-8091}:80"
+  #   networks:
+  #     - shared_net
+
+networks:
+  shared_net:
+    external: true
+    name: shared_network

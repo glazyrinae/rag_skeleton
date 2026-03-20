@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${DEEPLAKE_VISUALIZER_TITLE}</title>
+    <style>
+      :root {
+        --bg: #f4f1e8;
+        --panel: #fffdf8;
+        --ink: #1f2937;
+        --muted: #5b6470;
+        --line: #d7cfbe;
+        --accent: #0f766e;
+        --accent-strong: #115e59;
+        --warning-bg: #fff7df;
+        --warning-line: #d6b65f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 22%),
+          linear-gradient(180deg, #f7f3eb 0%, var(--bg) 100%);
+      }
+
+      .layout {
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        gap: 16px;
+        padding: 20px;
+      }
+
+      .hero,
+      .warning,
+      .viewer-shell {
+        width: min(1400px, 100%);
+        margin: 0 auto;
+      }
+
+      .hero,
+      .warning {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 18px 20px;
+        box-shadow: 0 10px 35px rgba(31, 41, 55, 0.06);
+      }
+
+      .hero h1 {
+        margin: 0 0 6px;
+        font-size: clamp(28px, 4vw, 40px);
+        line-height: 1;
+      }
+
+      .hero p,
+      .warning p,
+      .hint,
+      .empty p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .controls input {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px 16px;
+        font: inherit;
+        color: var(--ink);
+        background: #fff;
+      }
+
+      .controls button {
+        border: 0;
+        border-radius: 12px;
+        padding: 14px 18px;
+        font: inherit;
+        font-weight: 600;
+        color: #fff;
+        background: var(--accent);
+        cursor: pointer;
+      }
+
+      .controls button:hover {
+        background: var(--accent-strong);
+      }
+
+      .warning {
+        background: var(--warning-bg);
+        border-color: var(--warning-line);
+      }
+
+      .viewer-shell {
+        display: grid;
+        min-height: 0;
+      }
+
+      .viewer,
+      .empty {
+        width: 100%;
+        min-height: 68vh;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: 0 10px 35px rgba(31, 41, 55, 0.06);
+      }
+
+      iframe {
+        width: 100%;
+        height: 68vh;
+        border: 0;
+      }
+
+      .empty {
+        display: grid;
+        place-items: center;
+        padding: 32px;
+      }
+
+      .empty-inner {
+        width: min(720px, 100%);
+      }
+
+      .empty h2 {
+        margin: 0 0 10px;
+        font-size: 24px;
+      }
+
+      .hint {
+        margin-top: 14px;
+      }
+
+      code {
+        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+        background: rgba(31, 41, 55, 0.06);
+        border-radius: 6px;
+        padding: 2px 6px;
+      }
+
+      @media (max-width: 780px) {
+        .layout {
+          padding: 12px;
+        }
+
+        .controls {
+          grid-template-columns: 1fr;
+        }
+
+        iframe,
+        .viewer,
+        .empty {
+          min-height: 74vh;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <section class="hero">
+        <h1>${DEEPLAKE_VISUALIZER_TITLE}</h1>
+        <p>
+          Локальная обёртка над официальным Activeloop Visualizer. Для просмотра
+          укажите URL dataset, доступного через Activeloop UI.
+        </p>
+        <form class="controls" id="dataset-form">
+          <input
+            id="dataset-url"
+            type="text"
+            value="${DEEPLAKE_VISUALIZER_DATASET_URL}"
+            placeholder="Например: al://org/dataset"
+            spellcheck="false"
+          />
+          <button type="submit">Открыть dataset</button>
+        </form>
+        <p class="hint">
+          Базовый URL visualizer: <code>${DEEPLAKE_VISUALIZER_BASE_URL}</code>
+        </p>
+      </section>
+
+      <section class="warning">
+        <p>
+          Локальный адрес вида <code>deeplake://localhost:6543</code> в этот UI
+          не встраивается напрямую. Нужен dataset URL, который понимает
+          Activeloop Visualizer.
+        </p>
+      </section>
+
+      <section class="viewer-shell">
+        <div class="empty" id="empty-state">
+          <div class="empty-inner">
+            <h2>Dataset URL не задан</h2>
+            <p>
+              Укажи URL dataset выше или передай переменную окружения
+              <code>DEEPLAKE_VISUALIZER_DATASET_URL</code> в контейнер.
+            </p>
+          </div>
+        </div>
+        <div class="viewer" id="viewer" hidden>
+          <iframe
+            id="viewer-frame"
+            title="Deep Lake Visualizer"
+            loading="eager"
+            referrerpolicy="no-referrer"
+          ></iframe>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const baseUrl = "${DEEPLAKE_VISUALIZER_BASE_URL}";
+      const input = document.getElementById("dataset-url");
+      const form = document.getElementById("dataset-form");
+      const frame = document.getElementById("viewer-frame");
+      const viewer = document.getElementById("viewer");
+      const emptyState = document.getElementById("empty-state");
+
+      function render() {
+        const datasetUrl = input.value.trim();
+        if (!datasetUrl) {
+          viewer.hidden = true;
+          emptyState.hidden = false;
+          frame.removeAttribute("src");
+          return;
+        }
+
+        const url = new URL(baseUrl);
+        url.searchParams.set("url", datasetUrl);
+        frame.src = url.toString();
+        viewer.hidden = false;
+        emptyState.hidden = true;
+      }
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
