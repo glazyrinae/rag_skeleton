@@ -38,8 +38,8 @@ services:
     command: >
       sh -c "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     volumes:
-      - ./deploy/data:/app/data
       - ./app:/app
+      - ./deploy/data:/app/data
       - ./deploy/embedding_models:/app/embedding_models
       - ./deploy/deeplake_data:/app/deeplake_data
     env_file:
@@ -49,18 +49,20 @@ services:
     networks:
       - shared_net
 
-  # deeplake-ui:
-  #   image: nginx:1.27-alpine
-  #   environment:
-  #     DEEPLAKE_VISUALIZER_TITLE: ${DEEPLAKE_VISUALIZER_TITLE:-Deep Lake Viewer}
-  #     DEEPLAKE_VISUALIZER_BASE_URL: ${DEEPLAKE_VISUALIZER_BASE_URL:-https://app.activeloop.ai/visualizer}
-  #     DEEPLAKE_VISUALIZER_DATASET_URL: ${DEEPLAKE_VISUALIZER_DATASET_URL:-}
-  #   volumes:
-  #     - ./deploy/deeplake_ui/index.html.template:/etc/nginx/templates/index.html.template:ro
-  #   ports:
-  #     - "${DEEPLAKE_VISUALIZER_PORT:-8091}:80"
-  #   networks:
-  #     - shared_net
+  flowise:
+    image: flowiseai/flowise:3.0.13
+    ports:
+      - "${FLOWISE_PUBLISHED_PORT:-3000}:3000"
+    environment:
+      PORT: 3000
+      CORS_ORIGINS: ${FLOWISE_CORS_ORIGINS:-*}
+      IFRAME_ORIGINS: ${FLOWISE_IFRAME_ORIGINS:-*}
+      HTTP_SECURITY_CHECK: ${FLOWISE_HTTP_SECURITY_CHECK:-false}
+      HTTP_DENY_LIST: ${FLOWISE_HTTP_DENY_LIST:-169.254.169.253,169.254.169.254}
+    volumes:
+      - ./deploy/flowise_data:/root/.flowise
+    networks:
+      - shared_net
 
 networks:
   shared_net:
