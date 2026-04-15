@@ -15,6 +15,7 @@ class AddIndexRequest(BaseModel):
     db_name: str
     index_type: Literal["vector", "tree", "kg", "bm25"]
     folder_name: str
+    overwrite: bool = False
 
 
 class AskRequest(BaseModel):
@@ -22,7 +23,7 @@ class AskRequest(BaseModel):
 
     session_id: str | None = Field(None, alias="id_session")
     db_name: str
-    index_type: Literal["vector", "tree", "kg", "bm25"] = "vector"
+    index_type: Literal["vector", "tree", "kg", "bm25", "hybrid"] = "vector"
     question: str
 
 
@@ -43,7 +44,7 @@ async def add_index(
 
     rag_service = RAGService(payload.db_name)
     try:
-        rag_service.add_index(payload.index_type, folder_path)
+        rag_service.add_index(payload.index_type, folder_path, payload.overwrite)
     except Exception as exc:
         logger.exception("Не удалось построить индекс type=%s", payload.index_type)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -54,6 +55,7 @@ async def add_index(
         "index_type": payload.index_type,
         "folder_name": payload.folder_name,
         "folder_path": folder_path,
+        "overwrite": payload.overwrite,
     }
 
 

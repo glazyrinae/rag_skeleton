@@ -1,5 +1,6 @@
 import os
 from llama_index.core.query_engine import RetrieverQueryEngine
+from llama_index.core.retrievers import QueryFusionRetriever
 
 from .prompt_config import PromptConfig
 from .storage_manager import StorageManager
@@ -19,31 +20,31 @@ class RAGService:
         self.chat_mgr = ChatSessionManager(self.indices, self.prompts, self.reranker)
 
     # ─── Индексация ───
-    def add_index(self, type_index: str, path: str):
+    def add_index(self, type_index: str, path: str, overwrite: bool = False):
         if type_index == "tree":
-            self.indices.add("tree", path)
+            self.indices.add("tree", path, overwrite=overwrite)
         elif type_index == "vector":
-            self.indices.add("vector", path)
+            self.indices.add("vector", path, overwrite=overwrite)
         elif type_index == "kg":
-            self.indices.add("kg", path)
+            self.indices.add("kg", path, overwrite=overwrite)
         elif type_index == "bm25":
-            self.indices.add("bm25", path)
+            self.indices.add("bm25", path, overwrite=overwrite)
         else:
             raise ValueError(
-                f"Неизвестный type_index: {type_index}. Доступны: tree, vector, kg, bm25"
+                f"Неизвестный type_index: {type_index}. Доступны для индексации: tree, vector, kg, bm25"
             )
 
-    def add_tree_index(self, path: str):
-        self.add_index("tree", path)
+    def add_tree_index(self, path: str, overwrite: bool = False):
+        self.add_index("tree", path, overwrite=overwrite)
 
-    def add_vector_index(self, path: str):
-        self.add_index("vector", path)
+    def add_vector_index(self, path: str, overwrite: bool = False):
+        self.add_index("vector", path, overwrite=overwrite)
 
-    def add_kg_index(self, path: str):
-        self.add_index("kg", path)
+    def add_kg_index(self, path: str, overwrite: bool = False):
+        self.add_index("kg", path, overwrite=overwrite)
 
-    def add_bm25_index(self, path: str):
-        self.add_index("bm25", path)
+    def add_bm25_index(self, path: str, overwrite: bool = False):
+        self.add_index("bm25", path, overwrite=overwrite)
 
     # ─── Stateless запросы ───
     def query(
@@ -52,7 +53,7 @@ class RAGService:
         type_index: str = "vector",
         top_k: int = 10,
         temp: float = 0.1,
-        mt: int = 1024,
+        mt: int = 512,
         mode: str = "hybrid",
     ) -> str:
         if type_index == "tree":
@@ -63,9 +64,11 @@ class RAGService:
             return self.query_kg(text=text, top_k=top_k, temp=temp, mt=mt, mode=mode)
         elif type_index == "bm25":
             return self.query_bm25(text=text, top_k=top_k)
+        elif type_index == "hybrid":
+            return self.query_hybrid(text=text, top_k=top_k)
         else:
             raise ValueError(
-                f"Неизвестный type_index: {type_index}. Доступны: tree, vector, kg, bm25"
+                f"Неизвестный type_index: {type_index}. Доступны: tree, vector, kg, bm25, hybrid"
             )
 
     def query_tree(self, text: str, top_k=10, temp=0.1, mt=1024) -> str:
@@ -114,6 +117,29 @@ class RAGService:
             node_postprocessors=self.reranker.get_postprocessors(),
         ).query(text)
 
+    def query_hybrid(self, text: str, top_k=10) -> str:
+        vector_index = self.indices.get("vector")
+        vector_retriever = vector_index.as_retriever(similarity_top_k=top_k)
+
+        bm25_retriever = self.indices.get("bm25")
+        if hasattr(bm25_retriever, "similarity_top_k"):
+            bm25_retriever.similarity_top_k = top_k
+
+        retriever = QueryFusionRetriever(
+            retrievers=[vector_retriever, bm25_retriever],
+            retriever_weights=[0.6, 0.4],
+            similarity_top_k=top_k,
+            num_queries=1,
+            mode="reciprocal_rerank",
+            use_async=False,
+        )
+
+        return RetrieverQueryEngine.from_args(
+            retriever=retriever,
+            text_qa_template=self.prompts["custom_template"],
+            node_postprocessors=self.reranker.get_postprocessors(),
+        ).query(text)
+
     # ─── Stateful чат ───
     def get_chat_engine(
         self, session_id: str, index_type="vector", top_k=10, token_limit=4000
@@ -121,7 +147,7 @@ class RAGService:
         return self.chat_mgr.get_engine(session_id, index_type, top_k, token_limit)
 
     def chat(
-        self, text: str, session_id: str | None, index_type="vector", top_k=10
+        self, text: str, session_id: str | None, index_type="vector", top_k=3
     ) -> str:
         if session_id is None or not session_id.strip():
             return self.query(text=text, type_index=index_type, top_k=top_k)

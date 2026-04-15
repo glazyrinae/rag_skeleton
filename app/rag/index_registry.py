@@ -1,5 +1,7 @@
 import os
 import pickle
+import re
+import shutil
 from llama_index.core import SimpleDirectoryReader
 from llama_index.core.indices import load_index_from_storage
 from llama_index.core.node_parser import SentenceSplitter
@@ -24,13 +26,50 @@ class IndexRegistry:
         self._segmenter = Segmenter()
         self._morph_emb = NewsEmbedding()
         self._morph_tagger = NewsMorphTagger(self._morph_emb)
+        self._line_word_break_re = re.compile(
+            r"(?<=[A-Za-zА-Яа-яЁё])\n(?=[A-Za-zА-Яа-яЁё])"
+        )
+        self._glued_sentence_re = re.compile(r"([)\].,;:!?])([A-ZА-ЯЁ])")
 
     def _get_parser(self) -> SentenceSplitter:
         return SentenceSplitter(
             chunk_size=384, chunk_overlap=48, paragraph_separator="\n\n"
         )
 
-    def add(self, index_type: str, path_to_docs: str) -> None:
+    def _normalize_text(self, text: str) -> str:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        text = text.replace("\u00ad", "")
+        text = re.sub(r"(?<=\w)-\n(?=\w)", "", text)
+        text = self._line_word_break_re.sub(" ", text)
+        text = self._glued_sentence_re.sub(r"\1 \2", text)
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    def _normalize_batch(self, batch: list) -> list:
+        for doc in batch:
+            if getattr(doc, "text", None):
+                doc.text = self._normalize_text(doc.text)
+        return batch
+
+    def _iter_normalized_batches(self, docs: SimpleDirectoryReader):
+        for batch in docs.iter_data():
+            yield self._normalize_batch(batch)
+
+    def _reset_index(self, index_type: str) -> None:
+        if index_type not in self.indices:
+            raise ValueError(
+                f"Неизвестный index_type: {index_type}. Доступны: tree, vector, kg, bm25"
+            )
+        self.indices[index_type] = None
+        index_path = self.storage.paths[index_type]
+        if os.path.isdir(index_path):
+            shutil.rmtree(index_path)
+
+    def add(self, index_type: str, path_to_docs: str, overwrite: bool = False) -> None:
+        if overwrite:
+            self._reset_index(index_type)
+
         docs = SimpleDirectoryReader(path_to_docs, recursive=True)
         parser = self._get_parser()
 
@@ -54,7 +93,7 @@ class IndexRegistry:
     def _build_tree(
         self, ctx: StorageContext, docs: SimpleDirectoryReader, parser: SentenceSplitter
     ) -> None:
-        docs_iter = docs.iter_data()
+        docs_iter = self._iter_normalized_batches(docs)
         if os.path.exists(os.path.join(self.storage.paths["tree"], "index_store.json")):
             self.indices["tree"] = load_index_from_storage(ctx, index_id="tree_index")
             for batch in docs_iter:
@@ -76,7 +115,7 @@ class IndexRegistry:
     def _build_vector(
         self, ctx: StorageContext, docs: SimpleDirectoryReader, parser: SentenceSplitter
     ) -> None:
-        docs_iter = docs.iter_data()
+        docs_iter = self._iter_normalized_batches(docs)
         if os.path.exists(
             os.path.join(self.storage.paths["vector"], "index_store.json")
         ):
@@ -99,7 +138,7 @@ class IndexRegistry:
     def _build_kg(
         self, ctx: StorageContext, docs: SimpleDirectoryReader, parser: SentenceSplitter
     ) -> None:
-        docs_iter = docs.iter_data()
+        docs_iter = self._iter_normalized_batches(docs)
         kg_path = self.storage.paths["kg"]
         if os.path.exists(os.path.join(kg_path, "graph_store.json")):
             self.indices["kg"] = load_index_from_storage(ctx, index_id="kg_index")
@@ -132,7 +171,7 @@ class IndexRegistry:
         self, docs: SimpleDirectoryReader, parser: SentenceSplitter
     ) -> None:
         nodes = []
-        for batch in docs.iter_data():
+        for batch in self._iter_normalized_batches(docs):
             nodes.extend(parser.get_nodes_from_documents(batch))
 
         if not nodes:

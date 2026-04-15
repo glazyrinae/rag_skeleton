@@ -30,7 +30,7 @@ class SafeLLMRerank(LLMRerank):
 
 class Reranker:
     def __init__(self):
-        self.enabled = os.getenv("RAG_RERANK_ENABLED", "true").lower() == "true"
+        self.enabled = os.getenv("RAG_RERANK_ENABLED", "false").lower() == "true"
         self.top_n = int(os.getenv("RAG_RERANK_TOP_N", "3"))
         self.choice_batch_size = int(os.getenv("RAG_RERANK_CHOICE_BATCH_SIZE", "8"))
         self._postprocessors = None
