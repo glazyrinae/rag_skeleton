@@ -1,344 +1,201 @@
 # RAG Skeleton
 
-Небольшой локальный RAG-сервис на FastAPI для индексации файлов проекта и поиска по ним через эмбеддинги. Репозиторий в текущем состоянии использует:
+Локальный RAG-сервис на `FastAPI + Ollama + Deep Lake + Flowise`.
 
-- `FastAPI` для HTTP API
-- `Deep Lake` как векторное хранилище
-- `FastEmbed` для генерации эмбеддингов
-- `Ollama` как LLM backend
-- `Docker Compose` для локального запуска
+Ниже только рабочий минимум:
+1. как запустить систему,
+2. как скачать LLM и embedding-модель,
+3. как подключить Flowise.
 
-README ниже описывает именно текущее состояние репозитория, без устаревших модулей и интеграций.
+## 1. Быстрый старт
 
-## Что умеет сервис
+### Требования
+- Docker + Docker Compose
+- Linux/macOS
 
-- индексирует каталоги с файлами `.py`, `.md`, `.txt`, `.pdf`, `.html`
-- режет документы на чанки через `SentenceSplitter`
-- сохраняет тексты, метаданные и эмбеддинги в отдельные датасеты Deep Lake
-- ищет релевантные фрагменты по запросу
-- отправляет произвольный prompt в Ollama через API `/ask`
-- выполняет простой RAG через API `/rag`
-
-Важно: `/ask` по-прежнему не использует найденный контекст из векторной базы автоматически. Для этого теперь есть отдельный endpoint `/rag`.
-
-## Структура проекта
-
-```text
-.
-├── app/
-│   ├── api/endpoints.py        # HTTP endpoints
-│   ├── core/db.py              # индексация, чанкинг, эмбеддинги, поиск
-│   ├── core/llm.py             # клиент Ollama
-│   ├── services/dependencies.py
-│   └── main.py                 # точка входа FastAPI
-├── deploy/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── data/                   # данные для индексации
-│   ├── deeplake_data/          # датасеты Deep Lake
-│   ├── embedding_models/       # кэш embedding-моделей
-│   └── ollama_models/          # модели Ollama
-├── .env.example
-├── docker-compose.yml
-└── README.md
-```
-
-## API
-
-### `POST /add`
-
-Индексирует локальный каталог в указанный датасет.
-
-Пример:
-
-```bash
-curl -X POST "http://localhost:5005/add?schema=core&project_path=/app/data/core"
-```
-
-Параметры:
-
-- `schema` - имя датасета Deep Lake
-- `project_path` - путь внутри контейнера до каталога с документами
-
-### `POST /search`
-
-Ищет похожие чанки и возвращает их как plain text.
-
-Пример:
-
-```bash
-curl -X POST "http://localhost:5005/search?schema=core&query=как работает индексация"
-```
-
-### `POST /ask`
-
-Отправляет вопрос напрямую в Ollama и возвращает текст ответа.
-
-Примеры:
-
-```bash
-curl -X POST "http://localhost:5005/ask?question=Объясни назначение этого сервиса"
-```
-
-```bash
-curl -X POST "http://localhost:5005/ask" \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Сформулируй краткое описание проекта"}'
-```
-
-### `POST /rag`
-
-Ванильный RAG: ищет релевантные чанки в Deep Lake, собирает prompt с контекстом и отправляет его в Ollama.
-
-Примеры:
-
-```bash
-curl -X POST "http://localhost:5005/rag?schema=core&question=Как работает индексация"
-```
-
-```bash
-curl -X POST "http://localhost:5005/rag" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "schema": "core",
-    "question": "Как сервис режет документы на чанки?",
-    "top_k": 5,
-    "include_sources": true
-  }'
-```
-
-Ответ возвращается в JSON и содержит:
-
-- `answer` - ответ модели
-- `schema` - датасет, в котором выполнялся поиск
-- `question` - исходный вопрос
-- `used_chunks` - сколько чанков попало в контекст
-- `sources` - найденные фрагменты и их метаданные
-
-## Как работает индексация
-
-1. `SimpleDirectoryReader` обходит каталог рекурсивно.
-2. Загружаются только файлы с поддерживаемыми расширениями.
-3. Документы режутся на чанки через `SentenceSplitter`.
-4. Для чанков строятся эмбеддинги моделью `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`.
-5. Чанки записываются в Deep Lake датасет вида `/app/deeplake_data/<schema>`.
-
-Параметры по умолчанию находятся в [app/core/db.py](/home/andrey/projects/pets/rag_skeleton/app/core/db.py):
-
-- размер чанка: `1000`
-- overlap: `150`
-- размер батча эмбеддингов: `64`
-
-## Быстрый старт через Docker Compose
-
-### 1. Подготовьте внешнюю docker-сеть
-
-`docker-compose.yml` ожидает внешнюю сеть `shared_network`.
+### Шаг 1. Подготовить сеть
 
 ```bash
 docker network create shared_network
 ```
 
-### 2. Создайте `.env`
+Если сеть уже есть, Docker вернет сообщение, что она существует.
 
-Проще всего взять шаблон:
+### Шаг 2. Подготовить `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Минимальный пример:
+Минимально проверьте значения:
 
 ```env
 UID=1000
 GID=1000
 LOG_LEVEL=INFO
+
 OLLAMA_BASE_URL=http://ollama:11438
 OLLAMA_MODEL=hodza/cotype-nano-1.5-unofficial:latest
-```
-
-Если сервис `ollama` публикуется на другом порту, укажите также:
-
-```env
+OLLAMA_EMBED_MODEL=bge-m3
 OLLAMA_PUBLISHED_PORT=11438
+FLOWISE_PUBLISHED_PORT=3000
 ```
 
-### 3. Поднимите сервисы
+### Шаг 3. Запустить сервисы
 
 ```bash
 docker compose up -d --build
 ```
 
-После старта будут доступны:
+Проверка:
 
-- API: `http://localhost:5005`
-- Swagger UI: `http://localhost:5005/docs`
+- API: `http://localhost:5005/docs`
+- Flowise: `http://localhost:3000`
 - Ollama: `http://localhost:11438`
 
-### 4. Скачайте модель в сервис `ollama`
+### Шаг 4. Положить документы
 
-Сначала убедитесь, что контейнер `ollama` запущен:
+Кладите файлы для индексации в:
 
-```bash
-docker compose up -d ollama
+```text
+deploy/data/<folder_name>
 ```
 
-После этого скачайте нужную модель прямо через сервис:
+Пример:
+
+```text
+deploy/data/gost
+```
+
+### Шаг 5. Построить индекс
+
+```bash
+curl -X POST 'http://localhost:5005/add-index' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "db_name": "gost",
+    "index_type": "bm25",
+    "folder_name": "gost",
+    "overwrite": true
+  }'
+```
+
+`index_type`: `vector | tree | kg | bm25`.
+
+### Шаг 6. Задать вопрос
+
+```bash
+curl -X POST 'http://localhost:5005/ask' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "db_name": "gost",
+    "index_type": "bm25",
+    "question": "О чем этот набор документов?"
+  }'
+```
+
+Важно: `/ask` принимает **JSON body**. Если передавать `?question=...` в query string, получите `422`.
+
+---
+
+## 2. Как скачать LLM и embedding-модель
+
+В этом проекте обе модели берутся через `Ollama`:
+- LLM: `OLLAMA_MODEL`
+- Embeddings: `OLLAMA_EMBED_MODEL`
+
+### Скачать модели
 
 ```bash
 docker compose exec ollama ollama pull hodza/cotype-nano-1.5-unofficial:latest
+docker compose exec ollama ollama pull bge-m3
 ```
 
-Пример для другой модели:
-
-```bash
-docker compose exec ollama ollama pull qwen2.5:3b
-```
-
-Проверьте, что модель появилась:
+### Проверить, что модели доступны
 
 ```bash
 docker compose exec ollama ollama list
 ```
 
-Важно:
+### Связать имена с приложением
 
-- имя в `OLLAMA_MODEL` в `.env` должно совпадать с реально скачанной моделью
-- модели сохраняются в `deploy/ollama_models`
+Убедитесь, что `.env` совпадает с тем, что скачали:
 
-### 5. Положите данные для индексации
-
-Скопируйте файлы в каталог:
-
-```text
-deploy/data/<schema_name>
+```env
+OLLAMA_MODEL=hodza/cotype-nano-1.5-unofficial:latest
+OLLAMA_EMBED_MODEL=bge-m3
 ```
 
-Например:
-
-```text
-deploy/data/core
-```
-
-В контейнере этот путь будет доступен как:
-
-```text
-/app/data/core
-```
-
-### 6. Запустите индексацию
+После изменения `.env` перезапустите API:
 
 ```bash
-curl -X POST "http://localhost:5005/add?schema=core&project_path=/app/data/core"
+docker compose up -d api
 ```
 
-### 7. Выполните поиск
+Модели сохраняются в `deploy/ollama_models` (volume из `docker-compose.yml`).
 
-```bash
-curl -X POST "http://localhost:5005/search?schema=core&query=FastAPI endpoint"
+---
+
+## 3. Настройка Flowise
+
+### Базовое подключение
+
+1. Откройте `http://localhost:3000`.
+2. Создайте новый `Chatflow` или `Agentflow`.
+3. Добавьте HTTP-запрос к вашему API.
+
+### Параметры HTTP-запроса в Flowise
+
+- Method: `POST`
+- URL: `http://api:8000/ask`
+  - внутри контейнера Flowise используйте `api:8000`, не `localhost:5005`
+- Headers:
+  - `Content-Type: application/json`
+- Body (JSON):
+
+```json
+{
+  "db_name": "gost",
+  "index_type": "bm25",
+  "question": "{{question}}"
+}
 ```
 
-### 8. Выполните RAG-запрос
+Опционально для stateful-чата можно передавать `id_session`:
 
-```bash
-curl -X POST "http://localhost:5005/rag?schema=core&question=Как работает индексация"
+```json
+{
+  "id_session": "user-123",
+  "db_name": "gost",
+  "index_type": "bm25",
+  "question": "{{question}}"
+}
 ```
 
-## Локальный запуск без Docker
+### Типовые ошибки в Flowise
 
-Требуется Python `3.10`.
+- `422 Unprocessable Entity`
+  - Причина: отправка `question` как query param (`/ask?question=...`)
+  - Исправление: отправлять JSON body.
 
-```bash
-python3.10 -m venv .venv
-source .venv/bin/activate
-pip install -r deploy/requirements.txt
-```
+- `500 Internal Server Error` с `LockedException` (Deep Lake)
+  - Причина: хранилище занято другим процессом записи.
+  - Что делать: не запускать параллельные операции записи в один dataset, повторить запрос после завершения индексации/конкурирующей задачи.
 
-Запуск API:
+---
 
-```bash
-cd app
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-При локальном запуске нужно отдельно обеспечить:
-
-- доступный Ollama
-- директории для `embedding_models` и `deeplake_data`
-- корректный `OLLAMA_BASE_URL`
-
-## Переменные окружения
-
-Основные переменные:
-
-- `OLLAMA_BASE_URL` - адрес Ollama API, по умолчанию `http://ollama:11438`
-- `OLLAMA_MODEL` - модель Ollama для `/ask` и `/rag`
-- `OLLAMA_PUBLISHED_PORT` - порт, который пробрасывается наружу для сервиса `ollama`
-- `LOG_LEVEL` - уровень логирования
-- `UID` и `GID` - пользователь контейнера в Docker Compose
-- `DEEPLAKE_*` - необязательные переменные для локальной настройки Deep Lake
-
-## Хранилища и volume'ы
-
-Используются следующие монтирования:
-
-- `./deploy/data:/app/data`
-- `./app:/app`
-- `./deploy/embedding_models:/app/embedding_models`
-- `./deploy/deeplake_data:/app/deeplake_data`
-- `./deploy/ollama_models:/data/models`
-
-Это значит:
-
-- исходные документы живут в `deploy/data`
-- индекс Deep Lake сохраняется в `deploy/deeplake_data`
-- скачанные embedding-модели кэшируются в `deploy/embedding_models`
-- скачанные Ollama-модели сохраняются в `deploy/ollama_models`
-
-## Ограничения текущей версии
-
-- нет OpenAI-совместимого chat endpoint
-- нет Qdrant в текущей реализации
-- README старых версий проекта больше не соответствует коду
-- для первой загрузки embedding-модели и Ollama-модели нужен доступ в сеть
-
-## Частые проблемы
-
-### Нет прав на запись в `deploy/embedding_models` или `deploy/deeplake_data`
-
-Проверьте владельца каталогов и значения `UID`/`GID` в `.env`.
-
-### Ollama недоступен
-
-Проверьте переменную `OLLAMA_BASE_URL` и убедитесь, что контейнер `ollama` поднят:
+## Полезные команды
 
 ```bash
+# Статус контейнеров
 docker compose ps
+
+# Логи API
+docker logs --tail 200 rag_skeleton-api-1
+
+# Логи Flowise
+docker logs --tail 200 rag_skeleton-flowise-1
+
+# Перезапустить только API
+docker compose up -d api
 ```
-
-Если контейнер поднят, но модель не найдена, проверьте список моделей:
-
-```bash
-docker compose exec ollama ollama list
-```
-
-Если нужной модели нет, скачайте её:
-
-```bash
-docker compose exec ollama ollama pull <model_name>
-```
-
-### Индексация ничего не находит
-
-Проверьте:
-
-- что `project_path` существует внутри контейнера
-- что в каталоге есть файлы поддерживаемых типов
-- что поиск выполняется по тому же `schema`, куда делалась индексация
-
-## Что имеет смысл сделать дальше
-
-- связать `/search` и `/ask` в единый RAG endpoint
-- вернуть structured JSON-ответ для поиска вместо plain text
-- добавить управление `k` и другими параметрами поиска через API
-- покрыть сервис smoke-тестами
