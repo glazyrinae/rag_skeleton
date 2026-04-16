@@ -17,6 +17,10 @@ services:
       - ./.env
     networks:
       - shared_net
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     command: serve
     healthcheck:
       test: ["CMD-SHELL", "OLLAMA_HOST=127.0.0.1:11438 ollama list >/dev/null 2>&1"]
