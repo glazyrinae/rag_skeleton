@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag.rag_service import RAGService
+from services.dependencies import get_rag_by_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -42,7 +42,7 @@ async def add_index(
             detail=f"Папка не найдена: {folder_path}",
         )
 
-    rag_service = RAGService(payload.db_name)
+    rag_service = get_rag_by_db(payload.db_name)
     try:
         rag_service.add_index(payload.index_type, folder_path, payload.overwrite)
     except Exception as exc:
@@ -69,7 +69,7 @@ async def ask(
         raise HTTPException(status_code=400, detail="db_name не должен быть пустым")
 
     session_id = (payload.session_id or "").strip()
-    rag_service = RAGService(payload.db_name)
+    rag_service = get_rag_by_db(payload.db_name)
     try:
         answer = rag_service.chat(
             text=payload.question,
@@ -81,11 +81,11 @@ async def ask(
     except Exception as exc:
         logger.exception("Ошибка RAG ask session_id=%s", payload.session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    return {
-        "session_id": session_id or None,
-        "db_name": payload.db_name,
-        "question": payload.question,
-        "answer": answer,
-        "index_type": payload.index_type,
-    }
+    return answer.response
+    # return {
+    #     "session_id": session_id or None,
+    #     "db_name": payload.db_name,
+    #     "question": payload.question,
+    #     "answer": answer,
+    #     "index_type": payload.index_type,
+    # }

@@ -36,7 +36,7 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11438}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-hodza/cotype-nano-1.5-unofficial:latest}
     command: >
-      sh -c "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+      sh -c "uvicorn main:app --host 0.0.0.0 --port 8000"
     volumes:
       - ./app:/app
       - ./deploy/data:/app/data

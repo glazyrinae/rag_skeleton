@@ -30,6 +30,7 @@ class IndexRegistry:
             r"(?<=[A-Za-zА-Яа-яЁё])\n(?=[A-Za-zА-Яа-яЁё])"
         )
         self._glued_sentence_re = re.compile(r"([)\].,;:!?])([A-ZА-ЯЁ])")
+        self._lower_upper_glue_re = re.compile(r"(?<=[a-zа-яё])(?=[A-ZА-ЯЁ])")
 
     def _get_parser(self) -> SentenceSplitter:
         return SentenceSplitter(
@@ -39,9 +40,11 @@ class IndexRegistry:
     def _normalize_text(self, text: str) -> str:
         text = text.replace("\r\n", "\n").replace("\r", "\n")
         text = text.replace("\u00ad", "")
-        text = re.sub(r"(?<=\w)-\n(?=\w)", "", text)
+        text = re.sub(r"(?<=\w)-\s*\n\s*(?=\w)", "", text)
+        text = re.sub(r"[ \t]*\n[ \t]*", "\n", text)
         text = self._line_word_break_re.sub(" ", text)
         text = self._glued_sentence_re.sub(r"\1 \2", text)
+        text = self._lower_upper_glue_re.sub(" ", text)
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()

@@ -4,7 +4,12 @@ import os
 from rag.rag_service import RAGService
 
 
+@lru_cache(maxsize=32)
+def get_rag_by_db(db_name: str) -> RAGService:
+    return RAGService(db_name=db_name.strip())
+
+
 @lru_cache()
 def get_rag() -> RAGService:
     db_name = os.getenv("RAG_DB_NAME", "core")
-    return RAGService(db_name=db_name)
+    return get_rag_by_db(db_name)
