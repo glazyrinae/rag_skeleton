@@ -55,10 +55,11 @@ services:
 
   flowise:
     image: flowiseai/flowise:3.0.13
-    ports:
-      - "${FLOWISE_PUBLISHED_PORT:-3000}:3000"
+    expose:
+      - "3000"
     environment:
       PORT: 3000
+      FLOWISE_URL: https://${FLOWISE_DOMAIN:-flowise.local}
       CORS_ORIGINS: ${FLOWISE_CORS_ORIGINS:-*}
       IFRAME_ORIGINS: ${FLOWISE_IFRAME_ORIGINS:-*}
       HTTP_SECURITY_CHECK: ${FLOWISE_HTTP_SECURITY_CHECK:-false}
@@ -67,8 +68,19 @@ services:
       - ./deploy/flowise_data:/root/.flowise
     networks:
       - shared_net
+      - traefik-public
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.http.routers.flowise.rule=Host(`${FLOWISE_DOMAIN:-flowise.local}`)
+      - traefik.http.routers.flowise.entrypoints=websecure
+      - traefik.http.routers.flowise.tls=true
+      - traefik.http.routers.flowise.tls.certresolver=letsencrypt
+      - traefik.http.services.flowise.loadbalancer.server.port=3000
 
 networks:
   shared_net:
     external: true
     name: shared_network
+  traefik-public:
+    external: true

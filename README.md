@@ -17,6 +17,7 @@
 
 ```bash
 docker network create shared_network
+docker network create traefik-public
 ```
 
 Если сеть уже есть, Docker вернет сообщение, что она существует.
@@ -38,10 +39,18 @@ OLLAMA_BASE_URL=http://ollama:11438
 OLLAMA_MODEL=hodza/cotype-nano-1.5-unofficial:latest
 OLLAMA_EMBED_MODEL=bge-m3
 OLLAMA_PUBLISHED_PORT=11438
-FLOWISE_PUBLISHED_PORT=3000
+
+FLOWISE_DOMAIN=flowise.example.com
+FLOWISE_CORS_ORIGINS=https://site.example.com
+FLOWISE_IFRAME_ORIGINS=https://site.example.com
+FLOWISE_HTTP_SECURITY_CHECK=true
 ```
 
 ### Шаг 3. Запустить сервисы
+
+Traefik в этом compose **не поднимается**. Он должен быть запущен отдельно в вашем другом проекте и подключен к сети `traefik-public`.
+
+Проверьте DNS: `A`-запись `FLOWISE_DOMAIN` должна указывать на IP сервера, где запущены Docker-контейнеры.
 
 ```bash
 docker compose up -d --build
@@ -50,7 +59,7 @@ docker compose up -d --build
 Проверка:
 
 - API: `http://localhost:5005/docs`
-- Flowise: `http://localhost:3000`
+- Flowise: `https://<FLOWISE_DOMAIN>`
 - Ollama: `http://localhost:11438`
 
 ### Шаг 4. Положить документы
@@ -140,7 +149,7 @@ docker compose up -d api
 
 ### Базовое подключение
 
-1. Откройте `http://localhost:3000`.
+1. Откройте `https://<FLOWISE_DOMAIN>`.
 2. Создайте новый `Chatflow` или `Agentflow`.
 3. Добавьте HTTP-запрос к вашему API.
 
@@ -171,6 +180,26 @@ docker compose up -d api
   "question": "{{question}}"
 }
 ```
+
+### Вставка чата на другом сайте
+
+Если чат встраивается в другой проект, не используйте `localhost`:
+
+```js
+Chatbot.init({
+  chatflowid: "YOUR_CHATFLOW_ID",
+  apiHost: "https://flowise.example.com"
+})
+```
+
+Что поменять в проекте с фронтендом:
+
+- `apiHost` заменить с `http://localhost:3000` на `https://<FLOWISE_DOMAIN>`.
+- Добавить домен Flowise в CSP (`connect-src` и `frame-src`, если используете iframe).
+- Если есть reverse-proxy фронтенда (Nginx/Caddy), разрешить исходящие HTTPS-запросы на Flowise-домен.
+- Проверить, что в Flowise выставлены:
+  - `FLOWISE_CORS_ORIGINS=https://<домен_вашего_сайта>`
+  - `FLOWISE_IFRAME_ORIGINS=https://<домен_вашего_сайта>`
 
 ### Типовые ошибки в Flowise
 
