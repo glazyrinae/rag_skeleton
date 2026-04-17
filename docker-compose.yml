@@ -81,7 +81,7 @@ services:
       - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
       
       # Указываем порт nginx
-      - "traefik.http.services.flowise.dl-blog.loadbalancer.server.port=80"
+      - "traefik.http.services.flowise.dl-blog.loadbalancer.server.port=3000"
 
 networks:
   shared_net:
