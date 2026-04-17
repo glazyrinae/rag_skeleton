@@ -69,7 +69,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik-public"
-      - "traefik.http.routers.flowise-dl-blog.rule=Host(`${FLOWISE_DOMAIN:-flowise.dl-blog.ru}`)"
+      - "traefik.http.routers.flowise-dl-blog.rule=Host(`${FLOWISE_DOMAIN:-flowise.dl-blog.ru}`, `www.${FLOWISE_DOMAIN:-flowise.dl-blog.ru}`)"
       - "traefik.http.routers.flowise-dl-blog.entrypoints=websecure"
       - "traefik.http.routers.flowise-dl-blog.tls=true"
       - "traefik.http.routers.flowise-dl-blog.tls.certresolver=letsencrypt"
