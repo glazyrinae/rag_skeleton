@@ -42,7 +42,7 @@ async def add_index(
             detail=f"Папка не найдена: {folder_path}",
         )
 
-    rag_service = get_rag_by_db(payload.db_name)
+    rag_service = get_rag_by_db(payload.db_name, read_only=False)
     try:
         rag_service.add_index(payload.index_type, folder_path, payload.overwrite)
     except Exception as exc:
@@ -69,7 +69,7 @@ async def ask(
         raise HTTPException(status_code=400, detail="db_name не должен быть пустым")
 
     session_id = (payload.session_id or "").strip()
-    rag_service = get_rag_by_db(payload.db_name)
+    rag_service = get_rag_by_db(payload.db_name, read_only=True)
     try:
         answer = rag_service.chat(
             text=payload.question,

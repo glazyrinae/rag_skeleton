@@ -11,10 +11,10 @@ from .reranker import Reranker
 
 
 class RAGService:
-    def __init__(self, db_name: str):
+    def __init__(self, db_name: str, read_only: bool = False):
         configure_llama_settings()
         self.prompts = PromptConfig.load()
-        self.storage = StorageManager(db_name)
+        self.storage = StorageManager(db_name, read_only=read_only)
         self.indices = IndexRegistry(self.storage, self.prompts)
         self.reranker = Reranker()
         self.chat_mgr = ChatSessionManager(self.indices, self.prompts, self.reranker)
@@ -53,7 +53,7 @@ class RAGService:
         type_index: str = "vector",
         top_k: int = 10,
         temp: float = 0.1,
-        mt: int = 192,
+        mt: int = 384,
         mode: str = "hybrid",
     ) -> str:
         if type_index == "tree":
@@ -71,7 +71,7 @@ class RAGService:
                 f"Неизвестный type_index: {type_index}. Доступны: tree, vector, kg, bm25, hybrid"
             )
 
-    def query_tree(self, text: str, top_k=10, temp=0.1, mt=192) -> str:
+    def query_tree(self, text: str, top_k=10, temp=0.1, mt=384) -> str:
         idx = self.indices.get("tree")
         return idx.as_query_engine(
             similarity_top_k=top_k,
@@ -84,7 +84,7 @@ class RAGService:
             node_postprocessors=self.reranker.get_postprocessors(),
         ).query(text)
 
-    def query_vector(self, text: str, top_k=10, temp=0.1, mt=192) -> str:
+    def query_vector(self, text: str, top_k=10, temp=0.1, mt=384) -> str:
         idx = self.indices.get("vector")
         return idx.as_query_engine(
             similarity_top_k=top_k,
@@ -94,7 +94,7 @@ class RAGService:
             node_postprocessors=self.reranker.get_postprocessors(),
         ).query(text)
 
-    def query_kg(self, text: str, top_k=10, temp=0.1, mt=192, mode="hybrid") -> str:
+    def query_kg(self, text: str, top_k=10, temp=0.1, mt=384, mode="hybrid") -> str:
         idx = self.indices.get("kg")
         return idx.as_query_engine(
             retriever_mode=mode,

@@ -6,12 +6,12 @@ from llama_index.vector_stores.deeplake import DeepLakeVectorStore
 
 
 class StorageManager:
-    def __init__(self, db_name: str):
+    def __init__(self, db_name: str, read_only: bool = False):
         self.db_name = db_name
         self.base_path = f"/app/deeplake_data"
         self.path_to_db = f"{self.base_path}/{db_name}"
         self.vector_store = DeepLakeVectorStore(
-            dataset_path=self.path_to_db, overwrite=False, read_only=False
+            dataset_path=self.path_to_db, overwrite=False, read_only=read_only
         )
         self.paths = {
             "docstore": f"{self.base_path}/{db_name}_docstore",

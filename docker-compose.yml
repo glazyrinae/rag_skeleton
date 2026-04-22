@@ -6,11 +6,12 @@ services:
       - "${OLLAMA_PUBLISHED_PORT:-11438}:11438"
     volumes:
       - ./deploy/ollama_models:/data/models
+      - ./deploy/ollama_home:/data/home
       # - ./src/integrations/ollama_server:/workspace/ollama_server
       - ./deploy/gguf_adapters:/workspace/deploy/gguf_adapters
       - ./deploy/modelfiles:/workspace/deploy/modelfiles
     environment:
-      HOME: /tmp/ollama
+      HOME: /data/home
       OLLAMA_HOST: 0.0.0.0:11438
       OLLAMA_MODELS: /data/models
     env_file:

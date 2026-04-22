@@ -36,6 +36,8 @@ GID=1000
 LOG_LEVEL=INFO
 
 OLLAMA_BASE_URL=http://ollama:11438
+CLOUDE_MODEL=0
+OLLAMA_CLOUD_BASE_URL=https://ollama.com
 OLLAMA_MODEL=hodza/cotype-nano-1.5-unofficial:latest
 OLLAMA_EMBED_MODEL=bge-m3
 OLLAMA_PUBLISHED_PORT=11438
@@ -113,6 +115,10 @@ curl -X POST 'http://localhost:5005/ask' \
 - LLM: `OLLAMA_MODEL`
 - Embeddings: `OLLAMA_EMBED_MODEL`
 
+Переключение локальный/облачный Ollama:
+- `CLOUDE_MODEL=0` -> использовать `OLLAMA_BASE_URL` (локально, режим по умолчанию)
+- `CLOUDE_MODEL=1` -> использовать `OLLAMA_CLOUD_BASE_URL` (облачный endpoint)
+
 ### Скачать модели
 
 ```bash
@@ -133,6 +139,9 @@ docker compose exec ollama ollama list
 ```env
 OLLAMA_MODEL=hodza/cotype-nano-1.5-unofficial:latest
 OLLAMA_EMBED_MODEL=bge-m3
+CLOUDE_MODEL=0
+OLLAMA_BASE_URL=http://ollama:11438
+# OLLAMA_CLOUD_BASE_URL=https://ollama.com
 ```
 
 После изменения `.env` перезапустите API:

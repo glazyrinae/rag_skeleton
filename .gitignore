@@ -15,6 +15,7 @@ deploy/ollama_models
 deploy/open-webui-data
 deploy/deeplake_data
 deploy/flowise_data
+deploy/ollama_home
 app/__pycache__
 app/embedding_models
 data
