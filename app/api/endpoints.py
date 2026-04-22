@@ -3,6 +3,7 @@ import os
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from services.dependencies import get_rag_by_db
@@ -64,7 +65,7 @@ async def add_index(
     }
 
 
-@router.post("/ask", tags=["Работа с RAG"])
+@router.post("/ask", tags=["Работа с RAG"], response_class=PlainTextResponse)
 async def ask(
     payload: AskRequest,
 ):
