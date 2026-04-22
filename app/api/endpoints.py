@@ -11,6 +11,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _normalize_response_text(text: str) -> str:
+    """Convert escaped control sequences to printable formatting for chat UIs."""
+    return text.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "\t")
+
+
 class AddIndexRequest(BaseModel):
     db_name: str
     index_type: Literal["vector", "tree", "kg", "bm25"]
@@ -81,7 +86,7 @@ async def ask(
     except Exception as exc:
         logger.exception("Ошибка RAG ask session_id=%s", payload.session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return answer.response
+    return _normalize_response_text(answer.response)
     # return {
     #     "session_id": session_id or None,
     #     "db_name": payload.db_name,

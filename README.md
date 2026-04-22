@@ -119,6 +119,12 @@ curl -X POST 'http://localhost:5005/ask' \
 - `CLOUDE_MODEL=0` -> использовать `OLLAMA_BASE_URL` (локально, режим по умолчанию)
 - `CLOUDE_MODEL=1` -> использовать `OLLAMA_CLOUD_BASE_URL` (облачный endpoint)
 
+### Авторизация для Cloud-моделей
+
+```bash
+docker compose exec -it ollama ollama signin
+```
+
 ### Скачать модели
 
 ```bash
