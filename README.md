@@ -125,6 +125,45 @@ curl -X POST 'http://localhost:5005/ask' \
 docker compose exec -it ollama ollama signin
 ```
 
+### Если cloud-модель периодически падает с DNS timeout
+
+Симптомы:
+- `dial tcp: lookup ollama.com on 127.0.0.11:53: ... i/o timeout`
+- в `journalctl -u docker` есть `[resolver] failed to query external DNS server`
+
+Что уже включено в `docker-compose.yml` для `ollama`:
+- `dns: 8.8.8.8, 8.8.4.4, 1.1.1.1`
+- `dns_opt: use-vc, timeout:2, attempts:2, single-request-reopen`
+
+Проверьте и на уровне Docker daemon:
+
+```bash
+sudo cat /etc/docker/daemon.json
+```
+
+Ожидаемо:
+
+```json
+{
+  "dns": ["1.1.1.1", "8.8.8.8"]
+}
+```
+
+Применить:
+
+```bash
+sudo systemctl restart docker
+docker compose up -d
+```
+
+Быстрая проверка в момент проблемы:
+
+```bash
+docker compose exec ollama getent ahostsv4 ollama.com || echo "container DNS FAIL"
+dig @1.1.1.1 ollama.com +time=2 +tries=1
+sudo journalctl -u docker --since "10 min ago" --no-pager | tail -n 200
+```
+
 ### Скачать модели
 
 ```bash

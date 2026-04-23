@@ -2,6 +2,8 @@ services:
   ollama:
     image: ollama/ollama:latest
     user: "${UID}:${GID}"
+    restart: unless-stopped
+    init: true
     ports:
       - "${OLLAMA_PUBLISHED_PORT:-11438}:11438"
     volumes:
@@ -22,6 +24,11 @@ services:
       - 8.8.8.8
       - 8.8.4.4
       - 1.1.1.1
+    dns_opt:
+      - use-vc
+      - timeout:2
+      - attempts:2
+      - single-request-reopen
     command: serve
     healthcheck:
       test: ["CMD-SHELL", "OLLAMA_HOST=127.0.0.1:11438 ollama list >/dev/null 2>&1"]
