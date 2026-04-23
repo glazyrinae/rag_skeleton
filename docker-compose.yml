@@ -28,6 +28,8 @@ services:
       - timeout:${OLLAMA_DNS_TIMEOUT_SEC:-5}
       - attempts:${OLLAMA_DNS_ATTEMPTS:-5}
       - rotate
+    extra_hosts:
+      - "ollama.com:${OLLAMA_COM_IP:-34.36.133.15}"
     command: serve
     healthcheck:
       test: ["CMD-SHELL", "OLLAMA_HOST=127.0.0.1:11438 ollama list >/dev/null 2>&1"]
