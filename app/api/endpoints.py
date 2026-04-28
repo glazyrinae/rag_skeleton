@@ -87,7 +87,7 @@ async def ask(
     except Exception as exc:
         logger.exception("Ошибка RAG ask session_id=%s", payload.session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return _normalize_response_text(answer.response)
+    return _normalize_response_text(answer)
     # return {
     #     "session_id": session_id or None,
     #     "db_name": payload.db_name,

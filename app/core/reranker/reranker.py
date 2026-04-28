@@ -6,7 +6,7 @@ from llama_index.core import Settings
 from llama_index.core.postprocessor import LLMRerank
 from llama_index.core.schema import NodeWithScore, QueryBundle
 
-from .prompt_config import PromptConfig
+from core.prompt.prompt_config import PromptConfig
 
 
 logger = logging.getLogger(__name__)

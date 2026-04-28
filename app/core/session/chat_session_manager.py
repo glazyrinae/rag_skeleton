@@ -5,7 +5,7 @@ from llama_index.core.chat_engine import CondensePlusContextChatEngine
 from llama_index.core import Settings
 from llama_index.core.retrievers import QueryFusionRetriever
 
-from .index_registry import IndexRegistry
+from core.indexing.index_registry import IndexRegistry
 
 
 class ChatSessionManager:
@@ -51,7 +51,11 @@ class ChatSessionManager:
             else:
                 retriever = index.as_retriever(similarity_top_k=top_k)
 
-        chat_dir = os.path.join(self.registry.storage.paths["memory"], session_id)
+        chat_dir = os.path.join(
+            os.getenv("CHAT_MEMORY_DIR", "./chat_memory"),
+            self.registry.storage.db_name,
+            session_id,
+        )
         os.makedirs(chat_dir, exist_ok=True)
         chat_store = SimpleChatStore.from_persist_path(
             os.path.join(chat_dir, "chat_store.json")

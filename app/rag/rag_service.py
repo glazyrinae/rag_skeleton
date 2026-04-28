@@ -1,21 +1,42 @@
+# rag_service.py
 import os
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.retrievers import QueryFusionRetriever
 
-from .prompt_config import PromptConfig
-from .storage_manager import StorageManager
-from .index_registry import IndexRegistry
-from .chat_session_manager import ChatSessionManager
-from .llama_settings import configure_llama_settings
-from .reranker import Reranker
+from core.indexing.index_registry import IndexRegistry
+from core.prompt.prompt_config import PromptConfig
+from core.reranker.reranker import Reranker
+from core.session.chat_session_manager import ChatSessionManager
+from core.settings import configure_llama_settings
+from core.storage.storage_manager import StorageManager
+from core.processor.document_processor import DocumentProcessor
 
 
 class RAGService:
     def __init__(self, db_name: str, read_only: bool = False):
         configure_llama_settings()
         self.prompts = PromptConfig.load()
-        self.storage = StorageManager(db_name, read_only=read_only)
-        self.indices = IndexRegistry(self.storage, self.prompts)
+        self.db_name = db_name
+        self.doc_processor = DocumentProcessor()
+
+        # 🔧 1. Конфигурация бэкенда через переменные окружения
+        backend_type = os.getenv("RAG_INDEX_BACKEND", "local").strip().lower()
+        connection_string = os.getenv("DATABASE_URL", None)
+        base_path = os.getenv("STORAGE_BASE_PATH", "/app/deeplake_data")
+        embed_dim = int(os.getenv("EMBED_DIM", "384"))
+
+        # 🔧 2. Инициализация StorageManager (фабрика сама выберет нужный бэкенд)
+        self.storage = StorageManager(
+            db_name=db_name,
+            backend_type=backend_type,
+            base_path=base_path,
+            connection_string=connection_string,
+            embed_dim=embed_dim,
+        )
+
+        # 🔧 3. Один реестр на все случаи жизни
+        self.indices = IndexRegistry(self.storage, self.doc_processor, self.prompts)
+
         self.reranker = Reranker()
         self.chat_mgr = ChatSessionManager(self.indices, self.prompts, self.reranker)
 
@@ -154,9 +175,12 @@ class RAGService:
 
         engine = self.get_chat_engine(session_id, index_type, top_k)
         resp = engine.chat(text)
-        chat_store_path = os.path.join(
-            self.storage.paths["memory"], session_id, "chat_store.json"
+        chat_memory_dir = os.path.join(
+            os.getenv("CHAT_MEMORY_DIR", "./chat_memory"), self.db_name, session_id
         )
+        os.makedirs(chat_memory_dir, exist_ok=True)
+        chat_store_path = os.path.join(chat_memory_dir, "chat_store.json")
+
         if hasattr(engine._memory.chat_store, "persist"):
             engine._memory.chat_store.persist(persist_path=chat_store_path)
         return resp.response

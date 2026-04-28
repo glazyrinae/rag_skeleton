@@ -5,11 +5,12 @@ import textwrap
 
 class PromptConfig:
     """
-    Централизованное хранилище всех промптов для RAG-пайплайна.
-    Инкапсулирует сырые строки и готовые объекты PromptTemplate.
+    Централизованное хранилище промптов для RAG-пайплайна.
+    Ниже каждый шаблон подписан по этапу: индексация, retrieval, ответ, чат.
     """
 
-    # ─── 1. Сырые строки (для движков, ожидающих str) ───
+    # Общий QA-шаблон для ответов в query_engine:
+    # используется для vector/tree/kg/bm25 при генерации финального ответа.
     CUSTOM_TEMPLATE_STR = textwrap.dedent(
         """\
         Ты — помощник и консультант. Отвечай строго на основе предоставленного контекста.
@@ -29,6 +30,8 @@ class PromptConfig:
     """
     )
 
+    # Контекстный шаблон для stateful-чата (CondensePlusContextChatEngine):
+    # задает стиль ответа на основе найденного контекста.
     CHAT_CONTEXT_PROMPT_STR = textwrap.dedent(
         """\
         Ты — помощник и консультант. Отвечай строго на основе предоставленного контекста.
@@ -47,12 +50,15 @@ class PromptConfig:
     """
     )
 
+    # Шаблон для "сжатия" истории чата в короткий вопрос для retrieval.
     CONDENSE_PROMPT_STR = (
         "Суммаризируй историю диалога на русском, сохранив ключевые факты, "
         "номера статей/пунктов и суть вопроса. Будь краток.\n"
         "История:\n{chat_history}\nВопрос: {question}"
     )
 
+    # Refine-шаблон: используется, когда ответ уточняется по новому контексту.
+    # Нужен прежде всего для tree/kg query_engine.
     REFINE_TEMPLATE_STR = textwrap.dedent(
         """\
         Ты уточняешь уже сформированный ответ по новому контексту.
@@ -70,8 +76,12 @@ class PromptConfig:
     """
     )
 
+    # Summary-шаблон для построения TreeIndex:
+    # применяется в index_registry при TreeIndex.from_documents(..., summary_template=...).
     SUMMARY_PROMPT_STR = "Суммаризируй максимально точно только по контексту.\n\n{context_str}\n\nСводка:"
 
+    # Tree retrieval (single choice):
+    # выбор одного наиболее релевантного узла дерева.
     TREE_QUERY_TEMPLATE_STR = textwrap.dedent(
         """\
         Ниже список вариантов (1..{num_chunks}), каждый вариант — это краткая сводка узла.
@@ -84,6 +94,8 @@ class PromptConfig:
     """
     )
 
+    # Tree retrieval (multiple choice):
+    # выбор нескольких релевантных веток дерева.
     TREE_QUERY_MULTIPLE_TEMPLATE_STR = textwrap.dedent(
         """\
         Ниже список вариантов (1..{num_chunks}), каждый вариант — это краткая сводка узла.
@@ -97,6 +109,7 @@ class PromptConfig:
     """
     )
 
+    # Шаблон извлечения триплетов при построении KGIndex.
     KG_TRIPLET_EXTRACT_TEMPLATE_STR = textwrap.dedent(
         """\
         Извлеки до {max_knowledge_triplets} триплетов знаний из текста.
@@ -109,6 +122,7 @@ class PromptConfig:
     """
     )
 
+    # Шаблон извлечения ключевых слов для query по графу знаний.
     KG_QUERY_KEYWORD_TEMPLATE_STR = textwrap.dedent(
         """\
         Из вопроса извлеки до {max_keywords} ключевых слов для поиска по графу знаний.
@@ -120,6 +134,7 @@ class PromptConfig:
     """
     )
 
+    # Шаблон для LLM reranker (оценка релевантности кандидатов).
     RERANK_CHOICE_SELECT_PROMPT_STR = textwrap.dedent(
         """\
         Ниже список документов. У каждого документа есть номер и краткое содержание.
@@ -137,8 +152,6 @@ class PromptConfig:
 
     def __init__(self):
         self.custom_template = PromptTemplate(self.CUSTOM_TEMPLATE_STR)
-        self.chat_context_prompt = PromptTemplate(self.CHAT_CONTEXT_PROMPT_STR)
-        self.condense_prompt = PromptTemplate(self.CONDENSE_PROMPT_STR)
         self.refine_template = PromptTemplate(self.REFINE_TEMPLATE_STR)
         self.summary_prompt = PromptTemplate(self.SUMMARY_PROMPT_STR)
         self.tree_query_template = PromptTemplate(self.TREE_QUERY_TEMPLATE_STR)
@@ -159,10 +172,7 @@ class PromptConfig:
         """Возвращает все шаблоны в виде словаря для удобной передачи в другие модули."""
         return {
             "custom_template": self.custom_template,
-            "custom_template_str": self.CUSTOM_TEMPLATE_STR,
-            "chat_context_prompt": self.chat_context_prompt,
             "chat_context_prompt_str": self.CHAT_CONTEXT_PROMPT_STR,
-            "condense_prompt": self.condense_prompt,
             "condense_prompt_str": self.CONDENSE_PROMPT_STR,
             "refine_template": self.refine_template,
             "summary_prompt": self.summary_prompt,

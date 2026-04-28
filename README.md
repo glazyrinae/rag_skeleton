@@ -164,6 +164,46 @@ dig @1.1.1.1 ollama.com +time=2 +tries=1
 sudo journalctl -u docker --since "10 min ago" --no-pager | tail -n 200
 ```
 
+### Если DNS уже стабилен, но из контейнера есть timeout до `ollama.com:443`
+
+Симптом:
+- `dial tcp 34.36.133.15:443: i/o timeout`
+
+Это означает, что проблема уже не в резолве DNS, а в исходящем трафике контейнера в интернет.
+
+Проверочный и рабочий фикс:
+
+```bash
+# 1) включить ip_forward (если вдруг выключен)
+sudo sysctl -w net.ipv4.ip_forward=1
+
+# 2) явный allow для контейнеров к ollama.com IP:443
+sudo iptables -I DOCKER-USER 1 -d 34.36.133.15/32 -p tcp --dport 443 -j ACCEPT
+sudo iptables -I DOCKER-USER 2 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+sudo iptables -I DOCKER-USER 3 -j RETURN
+```
+
+Проверка:
+
+```bash
+docker run --rm --network shared_network curlimages/curl:8.8.0 \
+  -v --connect-timeout 8 --resolve ollama.com:443:34.36.133.15 \
+  https://ollama.com/api/tags
+```
+
+Если вернулся `HTTP 200`, повторите проверку cloud-модели:
+
+```bash
+docker compose exec ollama ollama run qwen3-coder:480b-cloud "hello"
+```
+
+Чтобы iptables-правила сохранились после перезагрузки сервера:
+
+```bash
+sudo apt-get update && sudo apt-get install -y iptables-persistent
+sudo netfilter-persistent save
+```
+
 ### Скачать модели
 
 ```bash

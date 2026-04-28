@@ -10,9 +10,11 @@ pydantic>=1.7.4,<3.0.0
 # Исправленная строка:
 deeplake>=3.9.12,<4.0.0
 llama-index-vector-stores-deeplake==0.1.6
+llama-index-vector-stores-postgres>=0.1.0,<0.2.0
 fastembed>=0.3.0
 llama-index-embeddings-fastembed>=0.1.0
 llama-index-retrievers-bm25>=0.1.0,<0.2.0
+psycopg2-binary>=2.9.9,<3.0
 numpy==1.24.3
 python-multipart==0.0.6
 nltk>=3.8.1
