@@ -1,5 +1,6 @@
 # rag_service.py
 import os
+from typing import Any
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.retrievers import QueryFusionRetriever
 
@@ -41,31 +42,31 @@ class RAGService:
         self.chat_mgr = ChatSessionManager(self.indices, self.prompts, self.reranker)
 
     # ─── Индексация ───
-    def add_index(self, type_index: str, path: str, overwrite: bool = False):
+    def add_index(self, type_index: str, loader: Any, overwrite: bool = False):
         if type_index == "tree":
-            self.indices.add("tree", path, overwrite=overwrite)
+            self.indices.add("tree", loader, overwrite=overwrite)
         elif type_index == "vector":
-            self.indices.add("vector", path, overwrite=overwrite)
+            self.indices.add("vector", loader, overwrite=overwrite)
         elif type_index == "kg":
-            self.indices.add("kg", path, overwrite=overwrite)
+            self.indices.add("kg", loader, overwrite=overwrite)
         elif type_index == "bm25":
-            self.indices.add("bm25", path, overwrite=overwrite)
+            self.indices.add("bm25", loader, overwrite=overwrite)
         else:
             raise ValueError(
                 f"Неизвестный type_index: {type_index}. Доступны для индексации: tree, vector, kg, bm25"
             )
 
-    def add_tree_index(self, path: str, overwrite: bool = False):
-        self.add_index("tree", path, overwrite=overwrite)
+    def add_tree_index(self, loader: Any, overwrite: bool = False):
+        self.add_index("tree", loader, overwrite=overwrite)
 
-    def add_vector_index(self, path: str, overwrite: bool = False):
-        self.add_index("vector", path, overwrite=overwrite)
+    def add_vector_index(self, loader: Any, overwrite: bool = False):
+        self.add_index("vector", loader, overwrite=overwrite)
 
-    def add_kg_index(self, path: str, overwrite: bool = False):
-        self.add_index("kg", path, overwrite=overwrite)
+    def add_kg_index(self, loader: Any, overwrite: bool = False):
+        self.add_index("kg", loader, overwrite=overwrite)
 
-    def add_bm25_index(self, path: str, overwrite: bool = False):
-        self.add_index("bm25", path, overwrite=overwrite)
+    def add_bm25_index(self, loader: Any, overwrite: bool = False):
+        self.add_index("bm25", loader, overwrite=overwrite)
 
     # ─── Stateless запросы ───
     def query(

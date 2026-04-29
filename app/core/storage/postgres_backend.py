@@ -5,6 +5,7 @@
 
 import json
 import pickle
+from urllib.parse import urlparse, unquote
 from typing import List, Any, Optional
 from contextlib import contextmanager
 import psycopg2
@@ -36,10 +37,28 @@ class PostgresBackend(StorageBackend):
         self.db_name = db_name
         self.conn_str = connection_string
         self.embed_dim = embed_dim
+        parsed = urlparse(self.conn_str)
+        scheme = parsed.scheme or "postgresql"
+        host = parsed.hostname
+        port = parsed.port
+        database = parsed.path.lstrip("/") if parsed.path else None
+        user = unquote(parsed.username) if parsed.username else None
+        password = unquote(parsed.password) if parsed.password else None
+        async_conn_str = (
+            f"{scheme}+asyncpg://{user}:{password}@{host}:{port}/{database}"
+            if all([host, port, database, user, password])
+            else None
+        )
 
         # Инициализируется ТОЛЬКО если выбран этот бэкенд
         self.vector_store = PGVectorStore.from_params(
             connection_string=self.conn_str,
+            async_connection_string=async_conn_str,
+            host=host,
+            port=str(port) if port is not None else None,
+            database=database,
+            user=user,
+            password=password,
             table_name=f"pgvector_{db_name}",
             embed_dim=embed_dim,
             hybrid_search=False,
@@ -152,6 +171,6 @@ class PostgresBackend(StorageBackend):
                         self.db_name,
                         index_type,
                         component,
-                        json.dumps(data, ensure_ascii=False),
+                        json.dumps(data, ensure_ascii=False, default=str),
                     ),
                 )

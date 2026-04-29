@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.loader.postgres_loader import PostgresArticleLoader
 from services.dependencies import get_rag_by_db
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ def _normalize_response_text(text: str) -> str:
 class AddIndexRequest(BaseModel):
     db_name: str
     index_type: Literal["vector", "tree", "kg", "bm25"]
-    folder_name: str
+    folder_name: str | None = None
     overwrite: bool = False
 
 
@@ -37,20 +38,26 @@ class AskRequest(BaseModel):
 async def add_index(
     payload: AddIndexRequest,
 ):
-    data_root = os.getenv("RAG_DATA_ROOT", "/app/data")
-    folder_path = os.path.join(data_root, payload.folder_name)
     if not payload.db_name.strip():
         raise HTTPException(status_code=400, detail="db_name не должен быть пустым")
 
-    if not os.path.isdir(folder_path):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Папка не найдена: {folder_path}",
-        )
-
     rag_service = get_rag_by_db(payload.db_name, read_only=False)
     try:
-        rag_service.add_index(payload.index_type, folder_path, payload.overwrite)
+        conn_string = os.getenv("DATABASE_URL", "").strip()
+        if not conn_string:
+            raise HTTPException(status_code=500, detail="DATABASE_URL не задан")
+
+        loader = PostgresArticleLoader(
+            conn_string=conn_string,
+            table=os.getenv("RAG_SOURCE_TABLE", "blog_post"),
+            content_col=os.getenv("RAG_SOURCE_CONTENT_COL", "body"),
+            metadata_cols={
+                "title": os.getenv("RAG_SOURCE_TITLE_COL", "title"),
+                "slug": os.getenv("RAG_SOURCE_SLUG_COL", "slug"),
+                "created": os.getenv("RAG_SOURCE_D_CREATE_COL", "created"),
+            },
+        )
+        rag_service.add_index(payload.index_type, loader, payload.overwrite)
     except Exception as exc:
         logger.exception("Не удалось построить индекс type=%s", payload.index_type)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -60,7 +67,7 @@ async def add_index(
         "db_name": payload.db_name,
         "index_type": payload.index_type,
         "folder_name": payload.folder_name,
-        "folder_path": folder_path,
+        "source": loader.source_name,
         "overwrite": payload.overwrite,
     }
 

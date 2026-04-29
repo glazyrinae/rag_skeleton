@@ -5,7 +5,7 @@
 
 import os
 from typing import Optional, Any
-from llama_index.core import SimpleDirectoryReader, StorageContext, Settings
+from llama_index.core import StorageContext, Settings
 from llama_index.core.indices import load_index_from_storage
 from llama_index.core.indices.tree import TreeIndex
 from llama_index.core import VectorStoreIndex
@@ -14,6 +14,7 @@ from llama_index.retrievers.bm25 import BM25Retriever
 
 from core.storage.storage_manager import StorageManager
 from core.processor.document_processor import DocumentProcessor
+from core.loader.base import BaseDocumentLoader
 
 
 class IndexRegistry:
@@ -28,7 +29,6 @@ class IndexRegistry:
             "kg": None,
             "bm25": None,
         }
-        # Вся работа с текстом (очистка, парсинг, лемматизация) вынесена сюда
         self.doc_processor = doc_processor
 
     def _reset_index(self, index_type: str) -> None:
@@ -37,28 +37,28 @@ class IndexRegistry:
                 f"Неизвестный index_type: {index_type}. Доступны: tree, vector, kg, bm25"
             )
         self.indices[index_type] = None
-        # Удаление делегируется бэкенду
         self.storage.reset_index(index_type)
 
-    def add(self, index_type: str, path_to_docs: str, overwrite: bool = False) -> None:
+    def add(
+        self, index_type: str, loader: BaseDocumentLoader, overwrite: bool = False
+    ) -> None:
         if overwrite:
             self._reset_index(index_type)
 
-        docs = SimpleDirectoryReader(path_to_docs, recursive=True)
         parser = self.doc_processor.get_parser()
 
         if index_type == "bm25":
-            self._build_bm25(docs, parser)
+            self._build_bm25(loader, parser)
             return
 
         ctx = self.storage.build_context(index_type)
 
         if index_type == "tree":
-            self._build_tree(ctx, docs, parser)
+            self._build_tree(ctx, loader, parser)
         elif index_type == "vector":
-            self._build_vector(ctx, docs, parser)
+            self._build_vector(ctx, loader, parser)
         elif index_type == "kg":
-            self._build_kg(ctx, docs, parser)
+            self._build_kg(ctx, loader, parser)
         else:
             raise ValueError(
                 f"Неизвестный index_type: {index_type}. Доступны: tree, vector, kg, bm25"
@@ -66,15 +66,14 @@ class IndexRegistry:
 
         self.storage.persist_context(ctx, index_type)
 
-    def _iter_docs(self, docs: SimpleDirectoryReader):
-        """Ленивая итерация по батчам с автоматической очисткой под формат файла."""
-        for batch in docs.iter_data():
+    def _iter_docs(self, loader: BaseDocumentLoader):
+        for batch in loader.iter_batches():
             yield self.doc_processor.process_batch(batch)
 
     def _build_tree(
-        self, ctx: StorageContext, docs: SimpleDirectoryReader, parser
+        self, ctx: StorageContext, loader: BaseDocumentLoader, parser
     ) -> None:
-        docs_iter = self._iter_docs(docs)
+        docs_iter = self._iter_docs(loader)
 
         if self.storage.index_exists("tree"):
             self.indices["tree"] = load_index_from_storage(ctx, index_id="tree_index")
@@ -95,9 +94,9 @@ class IndexRegistry:
                         self.indices["tree"].insert(doc)
 
     def _build_vector(
-        self, ctx: StorageContext, docs: SimpleDirectoryReader, parser
+        self, ctx: StorageContext, loader: BaseDocumentLoader, parser
     ) -> None:
-        docs_iter = self._iter_docs(docs)
+        docs_iter = self._iter_docs(loader)
 
         if self.storage.index_exists("vector"):
             self.indices["vector"] = load_index_from_storage(
@@ -117,9 +116,9 @@ class IndexRegistry:
                         self.indices["vector"].insert(doc)
 
     def _build_kg(
-        self, ctx: StorageContext, docs: SimpleDirectoryReader, parser
+        self, ctx: StorageContext, loader: BaseDocumentLoader, parser
     ) -> None:
-        docs_iter = self._iter_docs(docs)
+        docs_iter = self._iter_docs(loader)
 
         if self.storage.index_exists("kg"):
             self.indices["kg"] = load_index_from_storage(ctx, index_id="kg_index")
@@ -147,9 +146,9 @@ class IndexRegistry:
                     for doc in batch:
                         self.indices["kg"].insert(doc)
 
-    def _build_bm25(self, docs: SimpleDirectoryReader, parser) -> None:
+    def _build_bm25(self, loader: BaseDocumentLoader, parser) -> None:
         nodes = []
-        for batch in self._iter_docs(docs):
+        for batch in self._iter_docs(loader):
             nodes.extend(parser.get_nodes_from_documents(batch))
 
         if not nodes:
@@ -160,7 +159,6 @@ class IndexRegistry:
             similarity_top_k=10,
             tokenizer=self.doc_processor.lemmatize,
         )
-        # BM25 сохраняется отдельно, т.к. не использует StorageContext
         self.storage.save_bm25_nodes(nodes)
 
     def _load_persisted(self, index_type: str) -> Optional[Any]:
@@ -176,7 +174,6 @@ class IndexRegistry:
             if loaded is not None:
                 self.indices[index_type] = loaded
             elif index_type == "bm25":
-                # BM25 загружается напрямую, минуя StorageContext
                 nodes = self.storage.load_bm25_nodes()
                 if nodes:
                     self.indices["bm25"] = BM25Retriever.from_defaults(
