@@ -15,6 +15,7 @@ router = APIRouter()
 
 def _normalize_response_text(text: str) -> str:
     """Convert escaped control sequences to printable formatting for chat UIs."""
+    text = str(text)
     return text.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "\t")
 
 
@@ -94,7 +95,7 @@ async def ask(
     except Exception as exc:
         logger.exception("Ошибка RAG ask session_id=%s", payload.session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return _normalize_response_text(answer)
+    return _normalize_response_text(str(answer))
     # return {
     #     "session_id": session_id or None,
     #     "db_name": payload.db_name,
